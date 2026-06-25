@@ -1,0 +1,6 @@
+{
+  "name": "Clutch",
+  "description": "An AI-powered deadline survival system that monitors task risks, generates survival plans, and intervenes to prevent missed deadlines.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
