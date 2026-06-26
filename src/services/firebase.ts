@@ -181,16 +181,44 @@ function getSeededDemoLogs(): AgentLog[] {
       reason: 'DBMS deadline is in 1h 45m with only 20% progress.',
       timestamp: new Date(now - 4 * 60 * 1000).toISOString(),
       isAgentInitiated: true,
+      agentType: 'RISK_ASSESSOR',
+      telemetryFeedback: 'PENDING',
+      decisionExecuted: 'ESCALATED_TO_CRISIS_MODE_AND_DISPATCHED_NOTIFICATIONS',
+      userApprovalApplied: 'AUTONOMOUS',
+      structuredReasoning: {
+        metrics: {
+          observedDeadline: '1h 45m remaining',
+          observedProgress: '20% completed',
+          estimatedWorkRemaining: '3h workload load',
+          calendarAvailability: '0 free blocks discovered',
+        },
+        justificationText: 'DBMS project deadline has closed under 2 hours with only 20% progress. Immediate intervention is required to avoid workflow collapse.',
+        decisionConfidence: 96,
+      },
     },
     {
       id: 'log-2',
       taskId: 'demo-task-ml',
       taskTitle: 'Prepare ML Report',
       actionType: 'reschedule',
-      actionTaken: 'Auto-Scheduled Work Block',
+      actionTaken: 'Auto-Scheduled Focus Block',
       reason: 'Booked 45m slot at 4:00 PM for ML draft report writing.',
       timestamp: new Date(now - 12 * 60 * 1000).toISOString(),
       isAgentInitiated: true,
+      agentType: 'CALENDAR_SCHEDULER',
+      telemetryFeedback: 'USER_ACCEPTED',
+      decisionExecuted: 'SCHEDULED_FOCUS_BLOCK',
+      userApprovalApplied: 'BALANCED',
+      structuredReasoning: {
+        metrics: {
+          observedDeadline: 'tomorrow 5 PM',
+          observedProgress: '40% completed',
+          estimatedWorkRemaining: '4h workload load',
+          calendarAvailability: '2 open gaps discovered',
+        },
+        justificationText: 'Identified an open 45-minute sprint gap in Google Calendar. Injected dedicated deep-work focus block to secure the draft delivery.',
+        decisionConfidence: 92,
+      },
     },
     {
       id: 'log-3',
@@ -201,6 +229,20 @@ function getSeededDemoLogs(): AgentLog[] {
       reason: 'DS progress is 60% with ample time left. Secure.',
       timestamp: new Date(now - 15 * 60 * 1000).toISOString(),
       isAgentInitiated: true,
+      agentType: 'TASK_MONITOR',
+      telemetryFeedback: 'USER_ACCEPTED',
+      decisionExecuted: 'NO_ACTION',
+      userApprovalApplied: 'AUTONOMOUS',
+      structuredReasoning: {
+        metrics: {
+          observedDeadline: 'in 3 days',
+          observedProgress: '60% completed',
+          estimatedWorkRemaining: '1.5h workload load',
+          calendarAvailability: 'Abundant calendar intervals',
+        },
+        justificationText: 'Workload-to-deadline velocity ratios indicate the task state is fully secure. No automated scheduling is required.',
+        decisionConfidence: 98,
+      },
     }
   ];
 }
@@ -460,6 +502,77 @@ class PersistenceService {
       type: 'crisis'
     };
     return newNotification;
+  }
+
+  public async updateAgentLogTelemetry(logId: string, feedback: 'USER_ACCEPTED' | 'USER_IGNORED' | 'USER_DELETED'): Promise<AgentLog> {
+    const logs = await this.getAgentLogs();
+    const logIndex = logs.findIndex(l => l.id === logId);
+    if (logIndex === -1) throw new Error('Agent log not found');
+    
+    logs[logIndex] = {
+      ...logs[logIndex],
+      telemetryFeedback: feedback
+    };
+    localStorage.setItem('clutch_logs', JSON.stringify(logs));
+    return logs[logIndex];
+  }
+
+  public async simulateAgentFailure(type: 'calendar_503' | 'oauth_expired' | 'gemini_timeout'): Promise<AgentLog> {
+    let actionTaken = 'API Connection Error';
+    let reason = '';
+    let errorMessage = '';
+    let agentType: 'TASK_MONITOR' | 'RISK_ASSESSOR' | 'CALENDAR_SCHEDULER' | 'RECOVERY_AGENT' = 'CALENDAR_SCHEDULER';
+    
+    if (type === 'calendar_503') {
+      actionTaken = 'Calendar Booking Postponed';
+      reason = 'Google Calendar API connection lost (503 Service Unavailable). Retry scheduled in background.';
+      errorMessage = 'HTTP 503: Service Unavailable';
+      agentType = 'CALENDAR_SCHEDULER';
+    } else if (type === 'oauth_expired') {
+      actionTaken = 'Focus Ingestion Blocked';
+      reason = 'Google OAuth session expired. Auth re-handshake registered. Attempting token self-healing retry.';
+      errorMessage = 'Token expired: Access token could not be verified by Identity Pool';
+      agentType = 'TASK_MONITOR';
+    } else if (type === 'gemini_timeout') {
+      actionTaken = 'Risk Analysis Postponed';
+      reason = 'Gemini 2.0 reasoning loop timed out. Falling back to robust offline deterministic safe formulas.';
+      errorMessage = 'Gateway Timeout: connection to models/gemini-2.0-flash closed';
+      agentType = 'RISK_ASSESSOR';
+    }
+
+    const failureLog: AgentLog = {
+      id: 'log-err-' + Math.random().toString(36).substr(2, 9),
+      uid: 'demo-user-123',
+      taskId: null,
+      taskTitle: null,
+      actionType: 'do_nothing',
+      actionTaken,
+      reason,
+      timestamp: new Date().toISOString(),
+      isAgentInitiated: true,
+      agentType,
+      telemetryFeedback: 'PENDING',
+      isFailure: true,
+      retryCount: 1,
+      maxRetries: 3,
+      status: 'failed_retrying',
+      errorMessage,
+      structuredReasoning: {
+        metrics: {
+          observedDeadline: 'N/A',
+          observedProgress: 'N/A',
+          estimatedWorkRemaining: 'N/A',
+          calendarAvailability: 'Locked or Unreachable'
+        },
+        justificationText: `System encountered a background error during scheduled agent cycle. Task pushed to recovery loop.`,
+        decisionConfidence: 30
+      }
+    };
+
+    const logs = await this.getAgentLogs();
+    logs.unshift(failureLog);
+    localStorage.setItem('clutch_logs', JSON.stringify(logs.slice(0, 30)));
+    return failureLog;
   }
 }
 

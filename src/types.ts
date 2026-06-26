@@ -53,6 +53,7 @@ export type AgentActionType = 'escalate_risk' | 'trigger_crisis' | 'reschedule' 
 
 export interface AgentLog {
   id: string;
+  uid?: string; // Phase 2 user id tracking
   taskId: string | null;
   taskTitle: string | null;
   actionType: AgentActionType;
@@ -60,6 +61,30 @@ export interface AgentLog {
   reason: string; // Max 15 words
   timestamp: string; // ISO-8601
   isAgentInitiated: boolean; // Purple vs Cyan indicator
+
+  // Phase 2 Milestone 1 Expanded Fields:
+  agentType?: 'TASK_MONITOR' | 'RISK_ASSESSOR' | 'CALENDAR_SCHEDULER' | 'RECOVERY_AGENT';
+  telemetryFeedback?: 'PENDING' | 'USER_ACCEPTED' | 'USER_IGNORED' | 'USER_DELETED';
+  structuredReasoning?: {
+    metrics?: {
+      observedDeadline?: string;
+      observedProgress?: string;
+      estimatedWorkRemaining?: string;
+      calendarAvailability?: string;
+      [key: string]: any;
+    };
+    justificationText?: string;
+    decisionConfidence?: number; // e.g. 94 or 0.94
+  };
+  decisionExecuted?: string;
+  userApprovalApplied?: 'AUTONOMOUS' | 'ASSIST' | 'BALANCED';
+
+  // Failure Recovery / Resiliency tracking:
+  isFailure?: boolean;
+  retryCount?: number;
+  maxRetries?: number;
+  status?: 'success' | 'failed_retrying' | 'failed_terminal';
+  errorMessage?: string;
 }
 
 export interface AppNotification {
