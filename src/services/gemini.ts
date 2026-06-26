@@ -197,6 +197,80 @@ export async function generateChatResponseWithAI(
   }
 }
 
+/**
+ * Dynamic Risk Assessment Agent via Gemini
+ */
+export async function assessTaskRiskWithAI(task: any): Promise<{
+  riskScore: number;
+  actionType: string;
+  actionTaken: string;
+  reason: string;
+  structuredReasoning: {
+    metrics: {
+      observedDeadline: string;
+      observedProgress: string;
+      estimatedWorkRemaining: string;
+      calendarAvailability: string;
+    };
+    justificationText: string;
+    decisionConfidence: number;
+  };
+  simulated?: boolean;
+  model?: string;
+  error?: string;
+}> {
+  try {
+    const response = await fetch('/api/gemini/assess-risk', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ task }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    return await response.json();
+  } catch (error: any) {
+    console.warn('Backend risk assessment call failed, falling back to local simulation:', error);
+    const { calculateTaskRisk } = await import('../utils/riskEngine');
+    const riskResult = calculateTaskRisk({
+      deadline: task.deadline,
+      progress: task.progress,
+      complexity: task.complexity,
+      estimatedDuration: task.estimatedDuration,
+    });
+    const remainingHours = riskResult.hoursRemaining;
+    let actionType = 'do_nothing';
+    if (task.progress < 100) {
+      if (riskResult.isCrisis) actionType = 'trigger_crisis';
+      else if (riskResult.riskScore >= 70) actionType = 'escalate_risk';
+      else if (riskResult.riskScore >= 40) actionType = 'send_alert';
+      else if (task.progress < 50 && remainingHours < 12) actionType = 'reschedule';
+    }
+    return {
+      riskScore: riskResult.riskScore,
+      actionType,
+      actionTaken: `Risk evaluated at ${riskResult.riskScore}%`,
+      reason: task.progress >= 100 ? 'Task is already completed.' : `Monitored state: risk level is ${riskResult.riskScore}%.`,
+      structuredReasoning: {
+        metrics: {
+          observedDeadline: `${remainingHours.toFixed(1)} hours remaining`,
+          observedProgress: `${task.progress}% completed`,
+          estimatedWorkRemaining: `${task.estimatedDuration} mins workload`,
+          calendarAvailability: remainingHours < 4 ? 'Critical' : 'Balanced',
+        },
+        justificationText: `Client fallback evaluation calculated ${riskResult.riskScore}% risk with local deterministic formula.`,
+        decisionConfidence: 95
+      },
+      simulated: true,
+      error: error?.message || 'Network error'
+    };
+  }
+}
+
 // ==========================================
 // HIGH-FIDELITY SIMULATION MOCK ENGINE
 // ==========================================

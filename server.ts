@@ -9,6 +9,8 @@ import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from '@google/genai';
 import dotenv from 'dotenv';
 import { TASK_PARSER_SYSTEM_INSTRUCTION, generateTaskParserPrompt } from './src/utils/prompts/taskParser.js';
+import { RISK_ASSESSOR_SYSTEM_INSTRUCTION, generateRiskAssessorPrompt } from './src/utils/prompts/riskAssessor.js';
+import { calculateTaskRisk } from './src/utils/riskEngine.js';
 
 dotenv.config();
 
@@ -138,6 +140,59 @@ function simulateTaskParser(userInput: string): ParsedTaskResponse {
   return { title, deadline, complexity, priority, estimatedDuration, category, progress };
 }
 
+function simulateRiskAssessment(task: any) {
+  const riskResult = calculateTaskRisk({
+    deadline: task.deadline,
+    progress: task.progress,
+    complexity: task.complexity,
+    estimatedDuration: task.estimatedDuration,
+  });
+
+  const remainingHours = riskResult.hoursRemaining;
+  let actionType: 'escalate_risk' | 'trigger_crisis' | 'reschedule' | 'send_alert' | 'do_nothing' = 'do_nothing';
+  
+  if (task.progress >= 100) {
+    actionType = 'do_nothing';
+  } else if (riskResult.isCrisis) {
+    actionType = 'trigger_crisis';
+  } else if (riskResult.riskScore >= 70) {
+    actionType = 'escalate_risk';
+  } else if (riskResult.riskScore >= 40) {
+    actionType = 'send_alert';
+  } else if (task.progress < 50 && remainingHours < 12) {
+    actionType = 'reschedule';
+  }
+
+  let actionTaken = `Risk evaluated at ${riskResult.riskScore}%`;
+  let reason = `Task progress is secure and stable.`;
+  if (task.progress >= 100) {
+    reason = "Task is already completed.";
+  } else if (riskResult.isCrisis) {
+    reason = `CRITICAL: Due in ${remainingHours.toFixed(1)}h with only ${task.progress}% progress.`;
+  } else if (riskResult.riskScore >= 70) {
+    reason = `HIGH RISK: Progress is lagging relative to deadline.`;
+  } else if (riskResult.riskScore >= 40) {
+    reason = `MODERATE RISK: Monitor closely.`;
+  }
+
+  return {
+    riskScore: riskResult.riskScore,
+    actionType,
+    actionTaken,
+    reason: reason.substring(0, 60),
+    structuredReasoning: {
+      metrics: {
+        observedDeadline: `${remainingHours.toFixed(1)} hours remaining`,
+        observedProgress: `${task.progress}% completed`,
+        estimatedWorkRemaining: `${task.estimatedDuration} mins workload`,
+        calendarAvailability: remainingHours < 4 ? "Critical - 0 free gaps" : "Balanced availability"
+      },
+      justificationText: `Automated assessment calculated a risk ratio of ${riskResult.riskScore}% based on a ${task.complexity} complexity level and current progress velocity.`,
+      decisionConfidence: 95
+    }
+  };
+}
+
 async function startServer() {
   const app = express();
   const PORT = 3000;
@@ -230,6 +285,102 @@ async function startServer() {
     } catch (error: any) {
       console.error('Server Gemini Task Parsing failed, falling back to simulated parser:', error);
       const simulationResult = simulateTaskParser(userInput);
+      return res.json({ ...simulationResult, simulated: true, error: error?.message || 'Gemini error' });
+    }
+  });
+
+  // API Route: Risk Assessment using Gemini 3.5 Flash
+  app.post('/api/gemini/assess-risk', async (req, res) => {
+    const { task } = req.body;
+    if (!task) {
+      return res.status(400).json({ error: 'task object is required in request body' });
+    }
+
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      console.warn('GEMINI_API_KEY missing on server. Falling back to simulated risk assessment.');
+      const simulationResult = simulateRiskAssessment(task);
+      return res.json({ ...simulationResult, simulated: true });
+    }
+
+    try {
+      const ai = new GoogleGenAI({
+        apiKey,
+        httpOptions: {
+          headers: {
+            'User-Agent': 'aistudio-build',
+          }
+        }
+      });
+
+      const modelsToTry = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-3.5-flash'];
+      let lastError: any = null;
+      let text = '';
+      let usedModel = '';
+
+      for (const model of modelsToTry) {
+        let attempts = 0;
+        const maxAttempts = 2;
+        while (attempts < maxAttempts) {
+          try {
+            console.log(`Attempting risk assessment with model: ${model} (attempt ${attempts + 1})`);
+            const response = await ai.models.generateContent({
+              model: model,
+              contents: generateRiskAssessorPrompt(task, new Date().toISOString()),
+              config: {
+                systemInstruction: RISK_ASSESSOR_SYSTEM_INSTRUCTION,
+                responseMimeType: 'application/json',
+              }
+            });
+            const responseText = response.text?.trim() || '';
+            if (responseText) {
+              text = responseText;
+              usedModel = model;
+              break;
+            }
+          } catch (err: any) {
+            lastError = err;
+            console.warn(`Model ${model} failed on risk assessment attempt ${attempts + 1}:`, err?.message || err);
+            attempts++;
+            if (attempts < maxAttempts) {
+              await new Promise((resolve) => setTimeout(resolve, 300 * attempts));
+            }
+          }
+        }
+        if (text) {
+          break;
+        }
+      }
+
+      if (!text) {
+        throw lastError || new Error('All configured Gemini models failed to return risk assessment.');
+      }
+
+      const cleanJson = text.replace(/```json/g, '').replace(/```/g, '').trim();
+      const result = JSON.parse(cleanJson);
+
+      return res.json({
+        riskScore: result.riskScore ?? 0,
+        actionType: result.actionType || 'do_nothing',
+        actionTaken: result.actionTaken || 'Risk evaluated',
+        reason: result.reason || 'Risk evaluated successfully.',
+        structuredReasoning: {
+          metrics: {
+            observedDeadline: result.structuredReasoning?.metrics?.observedDeadline || 'N/A',
+            observedProgress: result.structuredReasoning?.metrics?.observedProgress || 'N/A',
+            estimatedWorkRemaining: result.structuredReasoning?.metrics?.estimatedWorkRemaining || 'N/A',
+            calendarAvailability: result.structuredReasoning?.metrics?.calendarAvailability || 'N/A',
+          },
+          justificationText: result.structuredReasoning?.justificationText || 'Assessment complete.',
+          decisionConfidence: result.structuredReasoning?.decisionConfidence ?? 90
+        },
+        simulated: false,
+        model: usedModel
+      });
+
+    } catch (error: any) {
+      console.error('Server Gemini Risk Assessment failed, falling back to simulated assessor:', error);
+      const simulationResult = simulateRiskAssessment(task);
       return res.json({ ...simulationResult, simulated: true, error: error?.message || 'Gemini error' });
     }
   });

@@ -38,14 +38,34 @@ export default function Dashboard({ user, activeTab, setActiveTab }: DashboardPr
       const allLogs = await firebaseService.getAgentLogs();
       setTasks(allTasks);
       setLogs(allLogs);
+
+      // Warm up and evaluate active tasks on launch
+      setTimeout(async () => {
+        try {
+          await firebaseService.runTaskMonitorCycle();
+          const refreshedTasks = await firebaseService.getTasks();
+          const refreshedLogs = await firebaseService.getAgentLogs();
+          setTasks(refreshedTasks);
+          setLogs(refreshedLogs);
+        } catch (e) {
+          console.error('Initial background monitoring cycle failed:', e);
+        }
+      }, 1000);
     };
     loadSession();
 
-    // Setup periodic automatic evaluation every 10 seconds in UI
+    // Setup periodic automatic evaluation every 20 seconds in UI
     const interval = setInterval(async () => {
-      const allTasks = await firebaseService.getTasks();
-      setTasks(allTasks);
-    }, 10000);
+      try {
+        await firebaseService.runTaskMonitorCycle();
+        const refreshedTasks = await firebaseService.getTasks();
+        const refreshedLogs = await firebaseService.getAgentLogs();
+        setTasks(refreshedTasks);
+        setLogs(refreshedLogs);
+      } catch (e) {
+        console.error('Periodic background monitoring cycle failed:', e);
+      }
+    }, 20000);
 
     return () => clearInterval(interval);
   }, []);
@@ -61,17 +81,26 @@ export default function Dashboard({ user, activeTab, setActiveTab }: DashboardPr
     return () => window.removeEventListener('clutch-agent-status', handleStatusChange);
   }, []);
 
-  useEffect(() => {
+  const getDisplayedStatus = (): 'monitoring' | 'evaluating' | 'recovery' | 'scheduling' | 'dispatch' => {
     const hasActiveFailures = logs.some(l => l.isFailure && l.status === 'failed_retrying');
     if (hasActiveFailures) {
-      setAgentStatus('recovery');
-    } else {
-      setAgentStatus(prev => (prev === 'recovery' ? 'monitoring' : prev));
+      return 'recovery';
     }
-  }, [logs]);
+    if (agentStatus === 'scheduling') {
+      return 'scheduling';
+    }
+    if (agentStatus === 'dispatch') {
+      return 'dispatch';
+    }
+    if (agentStatus === 'evaluating') {
+      return 'evaluating';
+    }
+    return 'monitoring';
+  };
 
   const getBadgeStyles = () => {
-    switch (agentStatus) {
+    const displayed = getDisplayedStatus();
+    switch (displayed) {
       case 'evaluating':
         return {
           bg: 'bg-amber-500/10 border-amber-500/30 text-amber-400',
@@ -140,6 +169,16 @@ export default function Dashboard({ user, activeTab, setActiveTab }: DashboardPr
         reason: `User successfully checked off all micro-steps. Risk dropped to 0%.`,
         isAgentInitiated: false
       });
+    } else {
+      // Trigger the Task Monitor & Risk Assessor Agents on progress updates
+      setTimeout(async () => {
+        try {
+          await firebaseService.runTaskMonitorCycle(taskId);
+          await refreshData();
+        } catch (e) {
+          console.error('Toggle subtask evaluation failed:', e);
+        }
+      }, 300);
     }
 
     await refreshData();
@@ -248,9 +287,28 @@ export default function Dashboard({ user, activeTab, setActiveTab }: DashboardPr
                   SECURE PROOF OF AGENTIC DEPTH AND AUTOMATIONS
                 </p>
               </div>
-              <div className={`flex items-center gap-1.5 border px-3 py-1 rounded text-xs font-mono transition-all duration-300 ${getBadgeStyles().bg}`}>
-                <Activity size={13} className="animate-pulse" />
-                <span>{getBadgeStyles().text}</span>
+              <div className="flex items-center gap-3">
+                <button
+                  id="run-agent-scan-btn"
+                  onClick={async () => {
+                    try {
+                      await firebaseService.runTaskMonitorCycle();
+                      await refreshData();
+                    } catch (e) {
+                      console.error('Manual assessment scan failed:', e);
+                    }
+                  }}
+                  className={`flex items-center gap-1.5 px-3 py-1 bg-[#091524] border border-[#1A2E46] hover:border-[#7B61FF]/40 text-slate-300 hover:text-slate-100 rounded text-xs font-mono transition-all cursor-pointer shadow-md uppercase tracking-wider ${
+                    agentStatus === 'evaluating' ? 'opacity-50 cursor-not-allowed' : ''
+                  }`}
+                  disabled={agentStatus === 'evaluating'}
+                >
+                  🤖 Run Risk Assessor
+                </button>
+                <div className={`flex items-center gap-1.5 border px-3 py-1 rounded text-xs font-mono transition-all duration-300 ${getBadgeStyles().bg}`}>
+                  <Activity size={13} className="animate-pulse" />
+                  <span>{getBadgeStyles().text}</span>
+                </div>
               </div>
             </div>
 

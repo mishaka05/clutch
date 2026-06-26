@@ -517,6 +517,78 @@ class PersistenceService {
     return logs[logIndex];
   }
 
+  private isEvaluating = false;
+
+  public async runTaskMonitorCycle(forceTaskId?: string): Promise<{ evaluated: number; logsCreated: number }> {
+    if (this.isEvaluating) {
+      return { evaluated: 0, logsCreated: 0 };
+    }
+    this.isEvaluating = true;
+    window.dispatchEvent(new CustomEvent('clutch-agent-status', { detail: 'evaluating' }));
+
+    try {
+      const tasks = await this.getTasks();
+      const activeTasks = tasks.filter(t => t.status === 'active');
+      let evaluatedCount = 0;
+      let logsCount = 0;
+
+      for (const task of activeTasks) {
+        if (forceTaskId && task.id !== forceTaskId) {
+          continue;
+        }
+        
+        if (!forceTaskId) {
+          const lastEval = task.lastRiskEvaluation ? new Date(task.lastRiskEvaluation).getTime() : 0;
+          if (Date.now() - lastEval < 30000) {
+            continue;
+          }
+        }
+
+        try {
+          const { assessTaskRiskWithAI } = await import('./gemini');
+          const result = await assessTaskRiskWithAI(task);
+
+          // Update task's risk score and evaluation time
+          const tasksList = await this.getTasks();
+          const tIdx = tasksList.findIndex(t => t.id === task.id);
+          if (tIdx !== -1) {
+            tasksList[tIdx] = {
+              ...tasksList[tIdx],
+              riskScore: result.riskScore,
+              lastRiskEvaluation: new Date().toISOString()
+            };
+            this.saveTasksInternal(tasksList);
+          }
+
+          // Add AgentLog
+          await this.addAgentLog({
+            taskId: task.id,
+            taskTitle: task.title,
+            actionType: result.actionType as any,
+            actionTaken: result.actionTaken,
+            reason: result.reason,
+            isAgentInitiated: true,
+            agentType: 'RISK_ASSESSOR',
+            telemetryFeedback: 'PENDING',
+            structuredReasoning: result.structuredReasoning,
+            decisionExecuted: result.actionType.toUpperCase(),
+            userApprovalApplied: 'AUTONOMOUS'
+          });
+
+          evaluatedCount++;
+          logsCount++;
+        } catch (err) {
+          console.error(`Task Monitor failed to evaluate task "${task.title}":`, err);
+        }
+      }
+
+      return { evaluated: evaluatedCount, logsCreated: logsCount };
+    } finally {
+      this.isEvaluating = false;
+      window.dispatchEvent(new CustomEvent('clutch-agent-status', { detail: 'monitoring' }));
+    }
+  }
+
   public async simulateAgentFailure(type: 'calendar_503' | 'oauth_expired' | 'gemini_timeout'): Promise<AgentLog> {
     let actionTaken = 'API Connection Error';
     let reason = '';

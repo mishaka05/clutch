@@ -90,6 +90,16 @@ export default function TaskParser({ onRefresh, setSelectedTask }: TaskParserPro
         totalSteps: subtasksList.length
       });
 
+      // Trigger the Task Monitor & Risk Assessor Agents on this new task
+      setTimeout(async () => {
+        try {
+          await firebaseService.runTaskMonitorCycle(created.id);
+          await onRefresh();
+        } catch (e) {
+          console.error('Initial risk assessment agent failed:', e);
+        }
+      }, 500);
+
       setIntakeInput('');
       setParsedTask(null);
       await onRefresh();
