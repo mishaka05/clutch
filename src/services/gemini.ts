@@ -13,7 +13,16 @@ import { CONTEXTUAL_CHAT_SYSTEM_INSTRUCTION, generateContextualChatPrompt, ChatM
 export type { ChatMessage };
 
 // Centrally configurable Gemini Model setting
-export const GEMINI_MODEL = 'gemini-2.0-flash';
+export const GEMINI_MODEL = 'gemini-3.5-flash';
+
+// Lightweight log deduplication mechanism to prevent console spam
+const loggedMessages = new Set<string>();
+function logOnce(msg: string) {
+  if (!loggedMessages.has(msg)) {
+    loggedMessages.add(msg);
+    console.log(msg);
+  }
+}
 
 // Helper to check if API key exists
 export function getApiKey(): string | null {
@@ -76,7 +85,7 @@ export async function parseTaskWithAI(userInput: string): Promise<{
       error: data.error,
     };
   } catch (error: any) {
-    console.warn('Backend parsing call failed, falling back to local simulation:', error);
+    logOnce('[Gemini Parse] Utilizing local parser fallback.');
     const sim = simulateTaskParser(userInput);
     return {
       ...sim,
@@ -98,7 +107,7 @@ export async function generateSubTasksWithAI(
   const client = getGeminiClient();
 
   if (!apiKey || !client) {
-    console.warn('Gemini API key missing. Running Execution Planning Agent in simulation.');
+    logOnce('[Gemini Subtask] Key missing. Utilizing local planner fallback.');
     return simulateSubTaskPlanner(title);
   }
 
@@ -116,7 +125,7 @@ export async function generateSubTasksWithAI(
     const cleanJson = text.replace(/```json/g, '').replace(/```/g, '').trim();
     return JSON.parse(cleanJson);
   } catch (error) {
-    console.error('Gemini Subtask Generation failed, falling back to simulation:', error);
+    logOnce('[Gemini Subtask] Utilizing local planner fallback.');
     return simulateSubTaskPlanner(title);
   }
 }
@@ -133,7 +142,7 @@ export async function generateCrisisPlanWithAI(
   const client = getGeminiClient();
 
   if (!apiKey || !client) {
-    console.warn('Gemini API key missing. Running Decision Support Agent in simulation.');
+    logOnce('[Gemini Crisis Plan] Key missing. Utilizing local simulation fallback.');
     return simulateCrisisPlan(title, hoursRemaining);
   }
 
@@ -159,7 +168,7 @@ export async function generateCrisisPlanWithAI(
     }
     return simulateCrisisPlan(title, hoursRemaining);
   } catch (error) {
-    console.error('Gemini Crisis Plan Generation failed, falling back to simulation:', error);
+    logOnce('[Gemini Crisis Plan] Utilizing local simulation fallback.');
     return simulateCrisisPlan(title, hoursRemaining);
   }
 }
@@ -177,7 +186,7 @@ export async function generateChatResponseWithAI(
   const client = getGeminiClient();
 
   if (!apiKey || !client) {
-    console.warn('Gemini API key missing. Running Chat Response in simulation.');
+    logOnce('[Gemini Chat] Key missing. Utilizing local simulation fallback.');
     return simulateChatResponse(task.title, latestInput);
   }
 
@@ -192,7 +201,7 @@ export async function generateChatResponseWithAI(
 
     return response.text || 'I am focused on analyzing your deadline emergency, please try again.';
   } catch (error) {
-    console.error('Gemini Chat failed, falling back to simulation:', error);
+    logOnce('[Gemini Chat] Utilizing local simulation fallback.');
     return simulateChatResponse(task.title, latestInput);
   }
 }
@@ -218,8 +227,13 @@ export async function assessTaskRiskWithAI(task: any): Promise<{
   simulated?: boolean;
   model?: string;
   error?: string;
+  evaluationSource?: 'gemini' | 'deterministic' | 'fallback';
 }> {
   try {
+    if (typeof window !== 'undefined' && localStorage.getItem('clutch_outage_gemini_timeout') === 'true') {
+      throw new Error('Gateway Timeout: connection to models/gemini-2.0-flash closed (Simulated Outage)');
+    }
+
     const response = await fetch('/api/gemini/assess-risk', {
       method: 'POST',
       headers: {
@@ -234,7 +248,7 @@ export async function assessTaskRiskWithAI(task: any): Promise<{
 
     return await response.json();
   } catch (error: any) {
-    console.warn('Backend risk assessment call failed, falling back to local simulation:', error);
+    logOnce('[Gemini Risk Assess] Utilizing local risk assessor fallback.');
     const { calculateTaskRisk } = await import('../utils/riskEngine');
     const riskResult = calculateTaskRisk({
       deadline: task.deadline,
@@ -266,7 +280,8 @@ export async function assessTaskRiskWithAI(task: any): Promise<{
         decisionConfidence: 95
       },
       simulated: true,
-      error: error?.message || 'Network error'
+      error: error?.message || 'Network error',
+      evaluationSource: 'fallback'
     };
   }
 }
@@ -436,6 +451,9 @@ function simulateChatResponse(title: string, latestInput: string): string {
   }
   if (lower.includes('what') && lower.includes('do')) {
     return `Based on your remaining time window, your top priority is: **Deconstruct scope and normalize database entities**. Turn off all devices, set your timer, and focus solely on this block for 20 minutes. I will monitor your progress metrics.`;
+  }
+  if (lower.includes('edit') || lower.includes('change') || lower.includes('modify') || lower.includes('how') || lower.includes('subtask') || lower.includes('microtask') || lower.includes('add')) {
+    return `To edit this task's details or customize its microtasks, click the **"Edit Details"** button in the header of this Task Command Center panel, or click the **"Configure Task & Checklist"** button located directly inside the operational progress checklist. This will open the Configuration Panel, where you can modify the title, category, priority, complexity, deadline, and estimated duration, as well as add, delete, or reorder individual microtask steps.`;
   }
   return `Understood. For your active task **"${title}"**, my recommendation is to lock down your browser tabs, focus strictly on the immediate micro-step, and avoid distraction. Let me know if you'd like me to draft code snippets, break down concepts, or suggest a calendar slot.`;
 }

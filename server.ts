@@ -14,6 +14,14 @@ import { calculateTaskRisk } from './src/utils/riskEngine.js';
 
 dotenv.config();
 
+const loggedMessages = new Set<string>();
+function logOnce(msg: string) {
+  if (!loggedMessages.has(msg)) {
+    loggedMessages.add(msg);
+    console.log(msg);
+  }
+}
+
 // Define TaskComplexity & TaskCategory types (or import)
 type TaskComplexity = 'low' | 'medium' | 'high';
 type TaskPriority = 'low' | 'medium' | 'high';
@@ -208,7 +216,7 @@ async function startServer() {
 
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
-      console.warn('GEMINI_API_KEY missing on server. Falling back to simulated task parsing.');
+      logOnce('[Gemini Task Parse] API key missing on server. Utilizing local simulation.');
       const simulationResult = simulateTaskParser(userInput);
       return res.json({ ...simulationResult, simulated: true });
     }
@@ -223,7 +231,7 @@ async function startServer() {
         }
       });
 
-      const modelsToTry = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-3.5-flash'];
+      const modelsToTry = ['gemini-3.5-flash', 'gemini-3.1-flash-lite'];
       let lastError: any = null;
       let text = '';
       let usedModel = '';
@@ -250,7 +258,7 @@ async function startServer() {
             }
           } catch (err: any) {
             lastError = err;
-            console.warn(`Model ${model} failed on attempt ${attempts + 1}:`, err?.message || err);
+            console.log(`[Gemini Task Parse] Model ${model} retry-active on attempt ${attempts + 1}.`);
             attempts++;
             if (attempts < maxAttempts) {
               await new Promise((resolve) => setTimeout(resolve, 300 * attempts));
@@ -283,9 +291,9 @@ async function startServer() {
       return res.json({ ...parsedTask, simulated: false, model: usedModel });
 
     } catch (error: any) {
-      console.error('Server Gemini Task Parsing failed, falling back to simulated parser:', error);
+      console.log('[Gemini Task Parse] Utilizing local parser fallback.');
       const simulationResult = simulateTaskParser(userInput);
-      return res.json({ ...simulationResult, simulated: true, error: error?.message || 'Gemini error' });
+      return res.json({ ...simulationResult, simulated: true, error: 'Local simulation' });
     }
   });
 
@@ -298,9 +306,9 @@ async function startServer() {
 
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
-      console.warn('GEMINI_API_KEY missing on server. Falling back to simulated risk assessment.');
+      logOnce('[Gemini Risk Assess] API key missing on server. Utilizing local simulation.');
       const simulationResult = simulateRiskAssessment(task);
-      return res.json({ ...simulationResult, simulated: true });
+      return res.json({ ...simulationResult, simulated: true, evaluationSource: 'deterministic' });
     }
 
     try {
@@ -313,7 +321,7 @@ async function startServer() {
         }
       });
 
-      const modelsToTry = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-3.5-flash'];
+      const modelsToTry = ['gemini-3.5-flash', 'gemini-3.1-flash-lite'];
       let lastError: any = null;
       let text = '';
       let usedModel = '';
@@ -340,7 +348,7 @@ async function startServer() {
             }
           } catch (err: any) {
             lastError = err;
-            console.warn(`Model ${model} failed on risk assessment attempt ${attempts + 1}:`, err?.message || err);
+            console.log(`[Gemini Risk Assess] Model ${model} retry-active on attempt ${attempts + 1}.`);
             attempts++;
             if (attempts < maxAttempts) {
               await new Promise((resolve) => setTimeout(resolve, 300 * attempts));
@@ -375,13 +383,14 @@ async function startServer() {
           decisionConfidence: result.structuredReasoning?.decisionConfidence ?? 90
         },
         simulated: false,
-        model: usedModel
+        model: usedModel,
+        evaluationSource: 'gemini'
       });
 
     } catch (error: any) {
-      console.error('Server Gemini Risk Assessment failed, falling back to simulated assessor:', error);
+      console.log('[Gemini Risk Assess] Utilizing local risk assessor fallback.');
       const simulationResult = simulateRiskAssessment(task);
-      return res.json({ ...simulationResult, simulated: true, error: error?.message || 'Gemini error' });
+      return res.json({ ...simulationResult, simulated: true, error: 'Local simulation', evaluationSource: 'fallback' });
     }
   });
 

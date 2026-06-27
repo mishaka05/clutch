@@ -85,6 +85,7 @@ export interface AgentLog {
   maxRetries?: number;
   status?: 'success' | 'failed_retrying' | 'failed_terminal';
   errorMessage?: string;
+  evaluationSource?: 'gemini' | 'deterministic' | 'fallback';
 }
 
 export interface AppNotification {

@@ -64,6 +64,18 @@ export default function AgentLogCard({ log, onRefresh }: AgentLogCardProps) {
               </span>
             )}
 
+            {log.evaluationSource && (
+              <span className={`text-[9px] font-mono px-2 py-0.5 rounded uppercase font-semibold border ${
+                log.evaluationSource === 'gemini'
+                  ? 'bg-purple-950/40 text-purple-400 border-purple-500/20'
+                  : log.evaluationSource === 'deterministic'
+                    ? 'bg-blue-950/40 text-blue-400 border-blue-500/20'
+                    : 'bg-amber-950/40 text-amber-400 border-amber-500/20'
+              }`}>
+                🧠 {log.evaluationSource}
+              </span>
+            )}
+
             {isErr && (
               <span className="text-[9px] font-mono bg-red-500/10 text-red-400 border border-red-500/20 px-2 py-0.5 rounded uppercase font-semibold animate-pulse">
                 {log.status === 'failed_retrying' ? '🔄 RETRY QUEUE (1 of 3)' : '🔴 TERMINAL OUTAGE'}
@@ -113,32 +125,18 @@ export default function AgentLogCard({ log, onRefresh }: AgentLogCardProps) {
           {isErr ? (
             <button
               onClick={async () => {
-                // Manual Self-Heal Simulation
-                const successLog = {
-                  taskId: null,
-                  taskTitle: null,
-                  actionType: 'do_nothing' as const,
-                  actionTaken: 'Self-Healing Connection Restored',
-                  reason: `Manual re-auth callback successfully resolved ${log.actionTaken}. Connection online.`,
-                  isAgentInitiated: true,
-                  agentType: log.agentType,
-                  telemetryFeedback: 'PENDING' as const,
-                  structuredReasoning: {
-                    metrics: {
-                      observedDeadline: 'Online',
-                      observedProgress: 'Online',
-                      estimatedWorkRemaining: 'Restored',
-                      calendarAvailability: 'Available Gaps Synced'
-                    },
-                    justificationText: `Triggered manual failure defuse bypass. Synchronized calendar entries and cleared recovery retry backlogs.`,
-                    decisionConfidence: 99
-                  }
-                };
-                // Filter out this error log and add a success log
-                const currentLogs = await firebaseService.getAgentLogs();
-                const updatedLogs = currentLogs.filter(cl => cl.id !== log.id);
-                localStorage.setItem('clutch_logs', JSON.stringify(updatedLogs));
-                await firebaseService.addAgentLog(successLog);
+                // Clear the associated simulated outage
+                let outageType: 'calendar_503' | 'oauth_expired' | 'gemini_timeout' | null = null;
+                if (log.agentType === 'CALENDAR_SCHEDULER') outageType = 'calendar_503';
+                else if (log.agentType === 'TASK_MONITOR') outageType = 'oauth_expired';
+                else if (log.agentType === 'RISK_ASSESSOR') outageType = 'gemini_timeout';
+
+                if (outageType) {
+                  firebaseService.setOutageState(outageType, false);
+                }
+
+                // Execute background Recovery Agent cycle immediately
+                await firebaseService.runTaskMonitorCycle(undefined, true);
                 await onRefresh();
               }}
               className="bg-emerald-500 hover:bg-emerald-400 text-[#0D1B2A] text-[10px] font-bold font-space uppercase px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer"
