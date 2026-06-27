@@ -25,13 +25,14 @@ interface AvatarPickerProps {
   selectedId: string;
   onSelect: (id: string) => void;
   interactive?: boolean;
-  size?: 'sm' | 'md' | 'lg' | 'xl';
+  size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl';
 }
 
 export default function AvatarPicker({ selectedId, onSelect, interactive = true, size = 'md' }: AvatarPickerProps) {
   
   const getDimensions = () => {
     switch (size) {
+      case 'xs': return 'w-7 h-7';
       case 'sm': return 'w-12 h-12';
       case 'md': return 'w-20 h-20';
       case 'lg': return 'w-32 h-32';

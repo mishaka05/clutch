@@ -14,7 +14,7 @@ import { UserProfile, Task } from './types';
 export default function App() {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'logs'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'calendar' | 'logs'>('dashboard');
   const [loading, setLoading] = useState(true);
 
   // Synchronize Auth and Active task summaries

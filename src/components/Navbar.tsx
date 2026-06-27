@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { LogOut, Activity, Flame, LayoutDashboard, History, Bell } from 'lucide-react';
+import { LogOut, Activity, Flame, LayoutDashboard, History, Bell, Calendar as CalendarIcon } from 'lucide-react';
 import { UserProfile, Task, AppNotification } from '../types';
 import AvatarPicker from './AvatarPicker';
 import { firebaseService } from '../services/firebase';
@@ -13,8 +13,8 @@ import { firebaseService } from '../services/firebase';
 interface NavbarProps {
   user: UserProfile;
   tasks: Task[];
-  activeTab: 'dashboard' | 'logs';
-  setActiveTab: (tab: 'dashboard' | 'logs') => void;
+  activeTab: 'dashboard' | 'calendar' | 'logs';
+  setActiveTab: (tab: 'dashboard' | 'calendar' | 'logs') => void;
   onLogout: () => void;
 }
 
@@ -41,26 +41,27 @@ export default function Navbar({ user, tasks, activeTab, setActiveTab, onLogout 
   const unreadCount = notifications.filter(n => !n.isRead).length;
 
   return (
-    <header className="w-full bg-[#0E1B2A]/90 border-b border-[#1C2F46] backdrop-blur-md sticky top-0 z-40 px-4 md:px-8 py-3.5 flex justify-between items-center transition-all">
+    <>
+    <header className="w-full bg-[#0E1B2A]/90 border-b border-[#1C2F46] backdrop-blur-md sticky top-0 z-40 px-3 sm:px-4 md:px-6 lg:px-8 py-3.5 flex justify-between items-center transition-all">
       {/* Brand Logo and Title */}
-      <div className="flex items-center gap-2 select-none">
+      <div className="flex items-center gap-2 select-none shrink-0">
         <div className="w-7 h-7 rounded-lg bg-gradient-to-tr from-[#00D4FF] to-[#7B61FF] flex items-center justify-center shadow-[0_0_15px_rgba(0,212,255,0.3)]">
           <Flame size={15} className="text-[#0D1B2A] stroke-[3]" />
         </div>
-        <span className="font-space font-bold text-lg text-slate-100 tracking-wider">
+        <span className="font-space font-bold text-base sm:text-lg text-slate-100 tracking-wider">
           CLUTCH
         </span>
-        <span className="hidden sm:inline text-[9px] font-mono text-[#00D4FF] uppercase tracking-widest bg-[#00D4FF]/10 px-2 py-0.5 rounded border border-[#00D4FF]/20">
+        <span className="hidden lg:inline text-[9px] font-mono text-[#00D4FF] uppercase tracking-widest bg-[#00D4FF]/10 px-2 py-0.5 rounded border border-[#00D4FF]/20">
           Agent Active
         </span>
       </div>
 
       {/* Navigation tabs */}
-      <div className="hidden md:flex items-center bg-[#07111C] p-1 rounded-lg border border-[#1A2F45]">
+      <div className="hidden md:flex items-center bg-[#07111C] p-1 rounded-lg border border-[#1A2F45] shrink-0">
         <button
           id="tab-dashboard"
           onClick={() => setActiveTab('dashboard')}
-          className={`flex items-center gap-2 px-4 py-1.5 rounded-md text-xs font-space uppercase tracking-wider transition-all cursor-pointer ${
+          className={`flex items-center gap-1.5 px-2.5 lg:px-4 py-1.5 rounded-md text-xs font-space uppercase tracking-wider transition-all cursor-pointer ${
             activeTab === 'dashboard'
               ? 'bg-[#00D4FF] text-[#0D1B2A] font-bold shadow-[0_0_15px_rgba(0,212,255,0.2)]'
               : 'text-slate-400 hover:text-slate-100'
@@ -70,9 +71,21 @@ export default function Navbar({ user, tasks, activeTab, setActiveTab, onLogout 
           Terminal
         </button>
         <button
+          id="tab-calendar"
+          onClick={() => setActiveTab('calendar')}
+          className={`flex items-center gap-1.5 px-2.5 lg:px-4 py-1.5 rounded-md text-xs font-space uppercase tracking-wider transition-all cursor-pointer ${
+            activeTab === 'calendar'
+              ? 'bg-[#00E676] text-[#0D1B2A] font-bold shadow-[0_0_15px_rgba(0,230,118,0.2)]'
+              : 'text-slate-400 hover:text-slate-100'
+          }`}
+        >
+          <CalendarIcon size={13} />
+          Calendar
+        </button>
+        <button
           id="tab-logs"
           onClick={() => setActiveTab('logs')}
-          className={`flex items-center gap-2 px-4 py-1.5 rounded-md text-xs font-space uppercase tracking-wider transition-all cursor-pointer ${
+          className={`flex items-center gap-1.5 px-2.5 lg:px-4 py-1.5 rounded-md text-xs font-space uppercase tracking-wider transition-all cursor-pointer ${
             activeTab === 'logs'
               ? 'bg-[#7B61FF] text-[#0D1B2A] font-bold shadow-[0_0_15px_rgba(123,97,255,0.2)]'
               : 'text-slate-400 hover:text-slate-100'
@@ -84,25 +97,27 @@ export default function Navbar({ user, tasks, activeTab, setActiveTab, onLogout 
       </div>
 
       {/* Task indicators and User credentials */}
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-2.5 sm:gap-4 shrink-0">
         
         {/* Urgent indicators */}
-        <div className="hidden sm:flex items-center gap-3">
+        <div className="hidden sm:flex items-center gap-2.5">
           {criticalCount > 0 && (
             <motion.div
               animate={{ opacity: [0.6, 1, 0.6] }}
               transition={{ repeat: Infinity, duration: 1.5 }}
-              className="flex items-center gap-1 bg-[#FF3B5C]/15 border border-[#FF3B5C]/30 text-[#FF3B5C] px-2.5 py-1 rounded-full text-[10px] font-mono font-semibold"
+              className="flex items-center gap-1 bg-[#FF3B5C]/15 border border-[#FF3B5C]/30 text-[#FF3B5C] px-2 py-1 rounded-full text-[10px] font-mono font-semibold shrink-0"
             >
-              <div className="w-1.5 h-1.5 bg-[#FF3B5C] rounded-full" />
-              <span>{criticalCount} CRISIS</span>
+              <div className="w-1.5 h-1.5 bg-[#FF3B5C] rounded-full shrink-0" />
+              <span className="hidden lg:inline">{criticalCount} CRISIS</span>
+              <span className="inline lg:hidden">{criticalCount}C</span>
             </motion.div>
           )}
           
           {warningCount > 0 && (
-            <div className="flex items-center gap-1 bg-[#FFB800]/15 border border-[#FFB800]/30 text-[#FFB800] px-2.5 py-1 rounded-full text-[10px] font-mono">
-              <div className="w-1.5 h-1.5 bg-[#FFB800] rounded-full" />
-              <span>{warningCount} WARNING</span>
+            <div className="flex items-center gap-1 bg-[#FFB800]/15 border border-[#FFB800]/30 text-[#FFB800] px-2 py-1 rounded-full text-[10px] font-mono shrink-0">
+              <div className="w-1.5 h-1.5 bg-[#FFB800] rounded-full shrink-0" />
+              <span className="hidden lg:inline">{warningCount} WARNING</span>
+              <span className="inline lg:hidden">{warningCount}W</span>
             </div>
           )}
         </div>
@@ -206,9 +221,9 @@ export default function Navbar({ user, tasks, activeTab, setActiveTab, onLogout 
         </div>
 
         {/* User profile capsule */}
-        <div className="flex items-center gap-2.5 bg-[#07111C] border border-[#1A2F45] pl-3 pr-2.5 py-1 rounded-full">
-          <div className="flex flex-col text-right pr-1">
-            <span className="text-xs font-semibold text-slate-100 max-w-[100px] truncate leading-tight">
+        <div className="flex items-center gap-1.5 sm:gap-2 bg-[#07111C] border border-[#1A2F45] pl-2.5 sm:pl-3 pr-1.5 sm:pr-2 py-1 rounded-full shrink-0">
+          <div className="flex flex-col text-right pr-1 shrink-0">
+            <span className="text-xs font-semibold text-slate-100 max-w-[60px] sm:max-w-[80px] lg:max-w-[120px] truncate leading-tight">
               {user.name}
             </span>
             <span className="text-[9px] font-mono text-slate-400 uppercase tracking-widest leading-none">
@@ -217,12 +232,12 @@ export default function Navbar({ user, tasks, activeTab, setActiveTab, onLogout 
           </div>
 
           {/* Large Avatar preview */}
-          <div className="w-7 h-7 rounded-full overflow-hidden border border-slate-700 bg-[#0A121E]">
+          <div className="w-7 h-7 rounded-full overflow-hidden border border-slate-700 bg-[#0A121E] shrink-0 flex items-center justify-center">
             <AvatarPicker
               selectedId={user.avatarId}
               onSelect={() => {}}
               interactive={false}
-              size="sm"
+              size="xs"
             />
           </div>
 
@@ -231,7 +246,7 @@ export default function Navbar({ user, tasks, activeTab, setActiveTab, onLogout 
             id="nav-logout-btn"
             onClick={onLogout}
             title="Disconnect system"
-            className="p-1 text-slate-400 hover:text-[#FF3B5C] transition-colors hover:scale-105 active:scale-95 cursor-pointer ml-1"
+            className="p-1 text-slate-400 hover:text-[#FF3B5C] transition-colors hover:scale-105 active:scale-95 cursor-pointer ml-0.5 shrink-0"
           >
             <LogOut size={13} />
           </button>
@@ -239,5 +254,37 @@ export default function Navbar({ user, tasks, activeTab, setActiveTab, onLogout 
 
       </div>
     </header>
+
+    {/* Mobile Bottom Navigation Bar */}
+    <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-[#0E1B2A]/95 border-t border-[#1C2F46] backdrop-blur-md z-40 py-2.5 px-6 flex justify-around items-center shadow-lg">
+      <button
+        onClick={() => setActiveTab('dashboard')}
+        className={`flex flex-col items-center gap-1 cursor-pointer transition-all ${
+          activeTab === 'dashboard' ? 'text-[#00D4FF]' : 'text-slate-400'
+        }`}
+      >
+        <LayoutDashboard size={18} />
+        <span className="text-[9px] font-space uppercase font-bold tracking-wider">Terminal</span>
+      </button>
+      <button
+        onClick={() => setActiveTab('calendar')}
+        className={`flex flex-col items-center gap-1 cursor-pointer transition-all ${
+          activeTab === 'calendar' ? 'text-[#00E676]' : 'text-slate-400'
+        }`}
+      >
+        <CalendarIcon size={18} />
+        <span className="text-[9px] font-space uppercase font-bold tracking-wider">Calendar</span>
+      </button>
+      <button
+        onClick={() => setActiveTab('logs')}
+        className={`flex flex-col items-center gap-1 cursor-pointer transition-all ${
+          activeTab === 'logs' ? 'text-[#7B61FF]' : 'text-slate-400'
+        }`}
+      >
+        <History size={18} />
+        <span className="text-[9px] font-space uppercase font-bold tracking-wider">Agent Log</span>
+      </button>
+    </nav>
+    </>
   );
 }

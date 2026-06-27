@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Activity, Trash2, Clock, Check, Info, Sparkles } from 'lucide-react';
+import { Activity, Trash2, Clock, Check, Info, Sparkles, Play, Pause, Square, AlertTriangle, Calendar as CalendarIcon } from 'lucide-react';
 import { Task, UserProfile, AgentLog, SubTask } from '../../types';
 import { firebaseService } from '../../services/firebase';
 
@@ -17,11 +17,12 @@ import AgentTimeline from './AgentLog/AgentTimeline';
 import ChatPanel from './Chat/ChatPanel';
 import CrisisTakeoverOverlay from './CrisisMode';
 import RiskGauge from './RiskGauge';
+import CalendarView from './CalendarView';
 
 interface DashboardProps {
   user: UserProfile;
-  activeTab: 'dashboard' | 'logs';
-  setActiveTab: (tab: 'dashboard' | 'logs') => void;
+  activeTab: 'dashboard' | 'calendar' | 'logs';
+  setActiveTab: (tab: 'dashboard' | 'calendar' | 'logs') => void;
 }
 
 export default function Dashboard({ user, activeTab, setActiveTab }: DashboardProps) {
@@ -43,6 +44,34 @@ export default function Dashboard({ user, activeTab, setActiveTab }: DashboardPr
   const [editSubtasks, setEditSubtasks] = useState<SubTask[]>([]);
   const [newSubtaskTitle, setNewSubtaskTitle] = useState('');
   const [newSubtaskDuration, setNewSubtaskDuration] = useState(15);
+
+  // Active Focus Session States
+  const [activeFocusTask, setActiveFocusTask] = useState<Task | null>(null);
+  const [focusTimeLeft, setFocusTimeLeft] = useState<number>(45 * 60); // 45 minutes default
+  const [isFocusPaused, setIsFocusPaused] = useState<boolean>(false);
+  const [showProgressPrompt, setShowProgressPrompt] = useState<boolean>(false);
+  const [completedFocusTask, setCompletedFocusTask] = useState<Task | null>(null);
+  const [feedbackProgress, setFeedbackProgress] = useState<number>(30); // Slider input percentage
+
+  // Countdown timer effect
+  useEffect(() => {
+    let interval: NodeJS.Timeout | null = null;
+    if (activeFocusTask && !isFocusPaused) {
+      interval = setInterval(() => {
+        setFocusTimeLeft((prev) => {
+          if (prev <= 1) {
+            if (interval) clearInterval(interval);
+            handleFocusSessionComplete();
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [activeFocusTask, isFocusPaused]);
 
   // Synchronize editing inputs with selected task details
   useEffect(() => {
@@ -179,6 +208,145 @@ export default function Dashboard({ user, activeTab, setActiveTab }: DashboardPr
     }
   };
 
+  // Active Focus Session Actions
+  const handleFocusSessionComplete = async () => {
+    if (!activeFocusTask) return;
+    const finishedTask = activeFocusTask;
+
+    await firebaseService.updateTask(finishedTask.id, { inProgress: false });
+
+    await firebaseService.addAgentLog({
+      taskId: finishedTask.id,
+      taskTitle: finishedTask.title,
+      actionType: 'do_nothing',
+      actionTaken: 'Focus Session Completed',
+      reason: `Operator successfully completed a 45-minute deep focus sprint on "${finishedTask.title}".`,
+      isAgentInitiated: false,
+      agentType: 'TASK_MONITOR'
+    });
+
+    await firebaseService.addNotification({
+      title: '🎯 Focus Sprint Complete',
+      body: `Congratulations! You focused on "${finishedTask.title}" for 45 minutes. Calibrate your progress now.`,
+      type: 'success'
+    });
+
+    setCompletedFocusTask(finishedTask);
+    setFeedbackProgress(finishedTask.progress);
+    setShowProgressPrompt(true);
+    setActiveFocusTask(null);
+    await refreshData();
+  };
+
+  const handleStartFocusSession = async (task: Task) => {
+    if (activeFocusTask) {
+      // Gracefully terminate existing focus session
+      await firebaseService.updateTask(activeFocusTask.id, { inProgress: false });
+    }
+
+    await firebaseService.updateTask(task.id, { inProgress: true });
+
+    await firebaseService.addAgentLog({
+      taskId: task.id,
+      taskTitle: task.title,
+      actionType: 'do_nothing',
+      actionTaken: 'Focus Session Commenced',
+      reason: `Operator locked into a dedicated deep-work focus sprint on "${task.title}".`,
+      isAgentInitiated: false,
+      agentType: 'TASK_MONITOR'
+    });
+
+    await firebaseService.addNotification({
+      title: '⏳ Focus Sprint Commenced',
+      body: `Deep focus locked. Commencing a 45-minute sprint for "${task.title}".`,
+      type: 'info'
+    });
+
+    setActiveFocusTask(task);
+    setFocusTimeLeft(45 * 60); // 45 minutes countdown
+    setIsFocusPaused(false);
+    await refreshData();
+  };
+
+  const handlePauseFocusSession = () => {
+    setIsFocusPaused(true);
+  };
+
+  const handleResumeFocusSession = () => {
+    setIsFocusPaused(false);
+  };
+
+  const handleStopFocusSession = async () => {
+    if (!activeFocusTask) return;
+    const stoppedTask = activeFocusTask;
+
+    await firebaseService.updateTask(stoppedTask.id, { inProgress: false });
+
+    await firebaseService.addAgentLog({
+      taskId: stoppedTask.id,
+      taskTitle: stoppedTask.title,
+      actionType: 'do_nothing',
+      actionTaken: 'Focus Session Terminated',
+      reason: `Operator aborted active deep focus sprint on "${stoppedTask.title}".`,
+      isAgentInitiated: false,
+      agentType: 'TASK_MONITOR'
+    });
+
+    setCompletedFocusTask(stoppedTask);
+    setFeedbackProgress(stoppedTask.progress);
+    setShowProgressPrompt(true);
+    setActiveFocusTask(null);
+    await refreshData();
+  };
+
+  const handleSubmitProgressFeedback = async () => {
+    if (!completedFocusTask) return;
+
+    const isCompleted = feedbackProgress >= 100;
+    const status = isCompleted ? 'completed' : 'active';
+
+    const subtasksCount = completedFocusTask.subtasks.length;
+    const updatedSubtasks = completedFocusTask.subtasks.map((st, idx) => {
+      const ratio = (idx + 1) / subtasksCount;
+      return {
+        ...st,
+        completed: ratio <= feedbackProgress / 100
+      };
+    });
+    const completedCount = updatedSubtasks.filter(st => st.completed).length;
+
+    await firebaseService.updateTask(completedFocusTask.id, {
+      progress: feedbackProgress,
+      status: isCompleted ? 'completed' : 'active',
+      subtasks: updatedSubtasks,
+      completedSteps: completedCount
+    });
+
+    await firebaseService.addAgentLog({
+      taskId: completedFocusTask.id,
+      taskTitle: completedFocusTask.title,
+      actionType: 'do_nothing',
+      actionTaken: isCompleted ? 'Task Accomplished' : 'Progress Registered',
+      reason: `Progress recalibrated to ${feedbackProgress}% post focus sprint.`,
+      isAgentInitiated: false,
+      agentType: 'TASK_MONITOR'
+    });
+
+    setShowProgressPrompt(false);
+    setCompletedFocusTask(null);
+
+    // Trigger immediate risk evaluation
+    window.dispatchEvent(new CustomEvent('clutch-agent-status', { detail: 'evaluating' }));
+    setTimeout(async () => {
+      try {
+        await firebaseService.runTaskMonitorCycle(completedFocusTask.id, true);
+      } catch (err) {
+        console.error('Post focus assessment failed:', err);
+      }
+      await refreshData();
+    }, 1000);
+  };
+
   const handleToggleSubtask = async (taskId: string, subtaskId: string) => {
     const task = tasks.find(t => t.id === taskId);
     if (!task) return;
@@ -293,7 +461,7 @@ export default function Dashboard({ user, activeTab, setActiveTab }: DashboardPr
       </AnimatePresence>
 
       <main className="flex-1 p-4 md:p-8 space-y-6 overflow-y-auto">
-        {activeTab === 'dashboard' ? (
+        {activeTab === 'dashboard' && (
           <>
             <HeroSection
               activeTasks={activeTasks}
@@ -315,7 +483,18 @@ export default function Dashboard({ user, activeTab, setActiveTab }: DashboardPr
               onSelectTask={setSelectedTask}
             />
           </>
-        ) : (
+        )}
+
+        {activeTab === 'calendar' && (
+          <CalendarView
+            tasks={tasks}
+            logs={logs}
+            onSelectTask={setSelectedTask}
+            onRefresh={refreshData}
+          />
+        )}
+
+        {activeTab === 'logs' && (
           <div className="space-y-6">
             <div className="flex justify-between items-center pb-4 border-b border-[#1C2F46]">
               <div>
@@ -384,14 +563,16 @@ export default function Dashboard({ user, activeTab, setActiveTab }: DashboardPr
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: '100%' }}
               transition={{ type: 'spring', damping: 26, stiffness: 220 }}
-              className={`fixed inset-y-0 right-0 z-50 h-screen bg-[#0E1A29] border-l border-[#1C2F46] flex flex-row shadow-2xl overflow-hidden transition-all duration-300 ${
+              className={`fixed inset-y-0 right-0 z-50 h-screen bg-[#0E1A29] border-l border-[#1C2F46] flex flex-col lg:flex-row shadow-2xl overflow-hidden transition-all duration-300 ${
                 isCoachExpanded 
-                  ? 'w-full sm:w-[820px] md:w-[880px]' 
+                  ? 'w-full lg:w-[880px]' 
                   : 'w-full sm:w-[420px] md:w-[480px]'
               }`}
             >
               {/* Left Column: Task details/forms */}
-              <div className="w-full sm:w-[420px] md:w-[480px] h-full flex flex-col justify-between shrink-0">
+              <div className={`w-full lg:w-[480px] flex flex-col justify-between shrink-0 overflow-y-auto ${
+                isCoachExpanded ? 'h-1/2 lg:h-full border-b lg:border-b-0 lg:border-r border-[#1C2F46]' : 'h-full'
+              }`}>
                 <div className="p-5 border-b border-[#1C2F46] flex justify-between items-center bg-[#0B1521]">
                   <div className="space-y-1">
                     <span className="text-[9px] font-mono text-slate-500 uppercase tracking-widest">
@@ -749,6 +930,19 @@ export default function Dashboard({ user, activeTab, setActiveTab }: DashboardPr
                         </div>
                       </div>
 
+                      {/* Active Focus Session Button */}
+                      <button
+                        id="start-focus-session-btn"
+                        onClick={() => {
+                          handleStartFocusSession(selectedTask);
+                          setSelectedTask(null);
+                        }}
+                        className="w-full py-3.5 bg-gradient-to-r from-[#00E676] to-[#00D4FF] hover:from-[#00E676]/90 hover:to-[#00D4FF]/90 text-[#0D1B2A] font-space font-bold uppercase tracking-wider text-xs rounded-xl shadow-[0_0_20px_rgba(0,230,118,0.25)] hover:shadow-[0_0_30px_rgba(0,212,255,0.4)] hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer flex items-center justify-center gap-2"
+                      >
+                        <Play size={14} className="fill-[#0D1B2A]" />
+                        ⚡ Start Sprint Focus Session
+                      </button>
+
                       <div className="space-y-3">
                         <h4 className="text-xs font-mono text-slate-400 uppercase tracking-wider">
                           Micro-Action Breakdown (AI-Generated Checklist)
@@ -831,14 +1025,204 @@ export default function Dashboard({ user, activeTab, setActiveTab }: DashboardPr
 
               {/* Right Column: AI Decision Coach */}
               {isCoachExpanded && (
-                <ChatPanel
-                  task={selectedTask}
-                  hoursRemaining={(new Date(selectedTask.deadline).getTime() - Date.now()) / (1000 * 3600)}
-                  onRescheduleCompleted={refreshData}
-                />
+                <div className="w-full lg:flex-1 h-1/2 lg:h-full overflow-y-auto">
+                  <ChatPanel
+                    task={selectedTask}
+                    hoursRemaining={(new Date(selectedTask.deadline).getTime() - Date.now()) / (1000 * 3600)}
+                    onRescheduleCompleted={refreshData}
+                  />
+                </div>
               )}
             </motion.aside>
           </>
+        )}
+      </AnimatePresence>
+
+      {/* Floating Focus HUD Panel */}
+      <AnimatePresence>
+        {activeFocusTask && (
+          <motion.div
+            initial={{ opacity: 0, y: 50, scale: 0.9 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 50, scale: 0.9 }}
+            className="fixed bottom-20 md:bottom-6 right-4 sm:right-6 z-40 w-[calc(100vw-32px)] sm:w-[380px] bg-[#0E1A29]/95 border border-[#00D4FF]/40 backdrop-blur-md rounded-2xl p-4 shadow-[0_0_25px_rgba(0,212,255,0.15)] flex flex-col gap-3 text-slate-100 transition-all"
+          >
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <span className="relative flex h-2.5 w-2.5 shrink-0">
+                  <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${isFocusPaused ? 'bg-amber-400' : 'bg-[#00D4FF]'}`}></span>
+                  <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${isFocusPaused ? 'bg-amber-500' : 'bg-[#00D4FF]'}`}></span>
+                </span>
+                <div className="min-w-0">
+                  <span className="text-[9px] font-mono text-slate-400 uppercase tracking-wider block">
+                    {activeFocusTask.category} SPRINT SESS
+                  </span>
+                  <h4 className="text-xs font-sans font-bold truncate text-slate-100">
+                    {activeFocusTask.title}
+                  </h4>
+                </div>
+              </div>
+
+              {/* Large monospaced timer displays minutes and seconds */}
+              <div className="text-xl font-mono font-bold tracking-tight text-[#00D4FF] bg-[#07111C] px-3 py-1 rounded-lg border border-[#1A2F45]">
+                {(() => {
+                  const minutes = Math.floor(focusTimeLeft / 60);
+                  const seconds = focusTimeLeft % 60;
+                  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+                })()}
+              </div>
+            </div>
+
+            {/* Slider progress track */}
+            <div className="space-y-1">
+              <div className="flex justify-between items-center text-[10px] font-mono">
+                <span className={isFocusPaused ? 'text-amber-400' : 'text-[#00E676] animate-pulse'}>
+                  {isFocusPaused ? '⏸️ SPRINT PAUSED' : '⚡ SPRINT ACTIVE'}
+                </span>
+                <span className="text-slate-400">
+                  {Math.round((focusTimeLeft / (45 * 60)) * 100)}% left
+                </span>
+              </div>
+              <div className="w-full h-1.5 bg-[#07111C] rounded-full overflow-hidden border border-[#1A2F45]">
+                <div
+                  className={`h-full rounded-full transition-all duration-1000 ${isFocusPaused ? 'bg-amber-500' : 'bg-gradient-to-r from-[#00E676] to-[#00D4FF]'}`}
+                  style={{ width: `${(focusTimeLeft / (45 * 60)) * 100}%` }}
+                />
+              </div>
+            </div>
+
+            {/* Control triggers */}
+            <div className="flex items-center justify-between border-t border-[#1C2F46]/60 pt-2.5 mt-0.5">
+              <span className="text-[10px] font-mono text-slate-500 uppercase">
+                Survival dashboard HUD
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={isFocusPaused ? handleResumeFocusSession : handlePauseFocusSession}
+                  className="p-2 bg-[#122234] hover:bg-[#1E334D] border border-[#1C2F46] hover:border-[#00D4FF]/30 rounded-lg text-slate-300 hover:text-white transition-all cursor-pointer"
+                  title={isFocusPaused ? 'Resume Sprint' : 'Pause Sprint'}
+                >
+                  {isFocusPaused ? <Play size={13} className="fill-slate-300" /> : <Pause size={13} className="fill-slate-300" />}
+                </button>
+                <button
+                  onClick={handleStopFocusSession}
+                  className="p-2 bg-[#2D1217] hover:bg-[#4D1D23] border border-red-500/20 hover:border-red-500/50 rounded-lg text-red-400 hover:text-red-300 transition-all cursor-pointer"
+                  title="Stop Focus Session"
+                >
+                  <Square size={13} className="fill-red-400" />
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Progress Calibration Modal */}
+      <AnimatePresence>
+        {showProgressPrompt && completedFocusTask && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              className="w-full max-w-md bg-[#0F1D30] border border-[#1A2E46] rounded-2xl p-6 shadow-2xl space-y-5 text-slate-100"
+            >
+              <div className="text-center space-y-1">
+                <span className="text-[10px] font-mono text-[#00D4FF] uppercase tracking-widest block font-bold">
+                  🎯 Task Progress Calibration
+                </span>
+                <h3 className="text-base font-space font-bold uppercase tracking-tight text-slate-200">
+                  Defusal Calibration Audit
+                </h3>
+                <p className="text-xs text-slate-400">
+                  Sprint complete on: <span className="text-slate-200 font-semibold italic">"{completedFocusTask.title}"</span>
+                </p>
+              </div>
+
+              {/* Slider Input */}
+              <div className="bg-[#07111C] p-4 rounded-xl border border-[#1A2F45] space-y-4">
+                <div className="flex justify-between items-center">
+                  <span className="text-xs font-mono text-slate-400 uppercase">
+                    Completion Status
+                  </span>
+                  <span className="text-lg font-mono font-bold text-[#00D4FF]">
+                    {feedbackProgress}%
+                  </span>
+                </div>
+
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  step="5"
+                  value={feedbackProgress}
+                  onChange={(e) => setFeedbackProgress(parseInt(e.target.value, 10))}
+                  className="w-full accent-[#00D4FF] bg-slate-800 rounded-lg h-2 cursor-pointer"
+                />
+
+                <div className="text-center py-1">
+                  <span className={`text-[10px] font-mono px-3 py-1 rounded border uppercase ${
+                    feedbackProgress >= 100 
+                      ? 'bg-[#00E676]/10 border-[#00E676]/30 text-[#00E676]' 
+                      : feedbackProgress >= 70 
+                        ? 'bg-blue-500/10 border-blue-500/30 text-blue-400' 
+                        : feedbackProgress >= 30 
+                          ? 'bg-amber-500/10 border-amber-500/30 text-amber-400' 
+                          : 'bg-slate-500/10 border-slate-500/30 text-slate-400'
+                  }`}>
+                    {feedbackProgress >= 100 
+                      ? '🏁 100% COMPLETE & DEFUSED' 
+                      : feedbackProgress >= 70 
+                        ? 'Polishing & Final Testing' 
+                        : feedbackProgress >= 30 
+                          ? 'Deep Implementation' 
+                          : 'Draft Stage / Foundations'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Calibration Shortcut Actions */}
+              <div className="space-y-1.5">
+                <span className="text-[9px] font-mono text-slate-500 uppercase tracking-wider block">
+                  Quick adjustments
+                </span>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setFeedbackProgress(prev => Math.min(100, prev + 20))}
+                    className="flex-1 py-2 bg-[#14263B] hover:bg-[#1E334D] border border-[#1C2F46] rounded-lg text-xs font-mono transition-all cursor-pointer hover:text-white"
+                  >
+                    +20%
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFeedbackProgress(prev => Math.min(100, prev + 50))}
+                    className="flex-1 py-2 bg-[#14263B] hover:bg-[#1E334D] border border-[#1C2F46] rounded-lg text-xs font-mono transition-all cursor-pointer hover:text-white"
+                  >
+                    +50%
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFeedbackProgress(100)}
+                    className="flex-1 py-2 bg-[#00E676]/20 hover:bg-[#00E676]/30 border border-[#00E676]/40 rounded-lg text-xs font-mono text-[#00E676] transition-all cursor-pointer uppercase font-bold"
+                  >
+                    100%
+                  </button>
+                </div>
+              </div>
+
+              {/* Action buttons */}
+              <div className="pt-2 flex gap-3">
+                <button
+                  type="button"
+                  onClick={handleSubmitProgressFeedback}
+                  className="flex-1 py-2.5 bg-gradient-to-r from-[#00E676] to-[#00D4FF] hover:from-[#00E676]/90 hover:to-[#00D4FF]/90 text-[#0D1B2A] text-xs font-bold font-space uppercase rounded-xl tracking-wider transition-all cursor-pointer shadow-lg"
+                >
+                  Confirm Calibration
+                </button>
+              </div>
+            </motion.div>
+          </div>
         )}
       </AnimatePresence>
     </div>

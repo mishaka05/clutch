@@ -38,6 +38,7 @@ export interface Task {
   lastRiskEvaluation: string | null; // ISO-8601
   lastAIInteraction: string | null; // ISO-8601
   subtasks: SubTask[];
+  inProgress?: boolean;
 }
 
 export interface UserProfile {
@@ -86,6 +87,7 @@ export interface AgentLog {
   status?: 'success' | 'failed_retrying' | 'failed_terminal';
   errorMessage?: string;
   evaluationSource?: 'gemini' | 'deterministic' | 'fallback';
+  scheduledAt?: string;
 }
 
 export interface AppNotification {

@@ -204,6 +204,7 @@ function getSeededDemoLogs(): AgentLog[] {
       actionTaken: 'Auto-Scheduled Focus Block',
       reason: 'Booked 45m slot at 4:00 PM for ML draft report writing.',
       timestamp: new Date(now - 12 * 60 * 1000).toISOString(),
+      scheduledAt: new Date(now + 2 * 3600 * 1000).toISOString(),
       isAgentInitiated: true,
       agentType: 'CALENDAR_SCHEDULER',
       telemetryFeedback: 'USER_ACCEPTED',
@@ -450,6 +451,12 @@ class PersistenceService {
     }
   }
 
+  public async deleteAgentLog(logId: string): Promise<void> {
+    const logs = await this.getAgentLogs();
+    const updated = logs.filter(l => l.id !== logId);
+    localStorage.setItem('clutch_logs', JSON.stringify(updated));
+  }
+
   public async addAgentLog(log: Omit<AgentLog, 'id' | 'timestamp'>): Promise<AgentLog> {
     const newLog: AgentLog = {
       ...log,
@@ -466,16 +473,58 @@ class PersistenceService {
   }
 
   // FCM Simulator and Google Calendar Simulator methods
-  public async simulateGoogleCalendarSchedule(taskId: string, durationMinutes: number): Promise<{ success: boolean; eventTime: string }> {
+  public async simulateGoogleCalendarSchedule(taskId: string, durationMinutes: number, customScheduledAt?: string): Promise<{ success: boolean; eventTime: string }> {
     const tasks = await this.getTasks();
     const task = tasks.find(t => t.id === taskId);
     if (!task) throw new Error('Task not found');
 
-    const eventTime = new Date(Date.now() + 60 * 60 * 1000); // 1 hour from now
-    eventTime.setMinutes(0, 0, 0);
+    let eventTime: Date;
+    if (customScheduledAt) {
+      eventTime = new Date(customScheduledAt);
+    } else {
+      eventTime = new Date(Date.now() + 60 * 60 * 1000); // 1 hour from now
+      eventTime.setMinutes(0, 0, 0);
+    }
 
     const formattedTime = eventTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     
+    // Check if there is already an existing non-failed booking log for this task
+    const logs = await this.getAgentLogs();
+    const existingLogIndex = logs.findIndex(l => 
+      l.taskId === taskId && 
+      l.agentType === 'CALENDAR_SCHEDULER' && 
+      l.actionType === 'reschedule' && 
+      !l.isFailure
+    );
+
+    if (existingLogIndex !== -1) {
+      // Update the existing booking in-place rather than creating a duplicate log!
+      const existingLog = logs[existingLogIndex];
+      existingLog.scheduledAt = eventTime.toISOString();
+      existingLog.reason = `Rescheduled: Booked 45m block at ${formattedTime} in Google Calendar.`;
+      
+      if (existingLog.structuredReasoning) {
+        existingLog.structuredReasoning.justificationText = `Autonomous Calendar Scheduling Agent updated focus session starting at ${formattedTime} to mitigate completion risk.`;
+        if (existingLog.structuredReasoning.metrics) {
+          existingLog.structuredReasoning.metrics.calendarAvailability = 'Free block updated';
+        }
+      }
+      
+      localStorage.setItem('clutch_logs', JSON.stringify(logs));
+
+      // Dispatch Google Calendar rescheduled notification
+      await this.addNotification({
+        title: '🗓️ Google Calendar Focus Session Rescheduled',
+        body: `RESCHEDULED: Blocked a 45-minute deep-work session starting at ${formattedTime} for "${task.title}".`,
+        type: 'info'
+      });
+
+      return {
+        success: true,
+        eventTime: eventTime.toISOString()
+      };
+    }
+
     // Add Agent Log
     await this.addAgentLog({
       taskId,
@@ -484,6 +533,27 @@ class PersistenceService {
       actionTaken: `Scheduled Workspace Focus slot`,
       reason: `Booked 45m block at ${formattedTime} in Google Calendar. Free interval found.`,
       isAgentInitiated: true,
+      agentType: 'CALENDAR_SCHEDULER',
+      scheduledAt: eventTime.toISOString(),
+      structuredReasoning: {
+        metrics: {
+          observedDeadline: 'N/A',
+          observedProgress: `${task.progress || 0}%`,
+          estimatedWorkRemaining: 'N/A',
+          calendarAvailability: '1 free gap discovered'
+        },
+        justificationText: `Autonomous Calendar Scheduling Agent successfully scanned calendar free/busy slots and secured a 45-minute focus session starting at ${formattedTime} to mitigate completion risk.`,
+        decisionConfidence: 95
+      },
+      decisionExecuted: 'SCHEDULED_FOCUS_BLOCK',
+      userApprovalApplied: 'ASSIST'
+    });
+
+    // Dispatch Google Calendar booked notification (Notification Agent)
+    await this.addNotification({
+      title: '🗓️ Google Calendar Focus Session Booked',
+      body: `AUTONOMOUS SPRINT: Blocked a 45-minute deep-work session starting at ${formattedTime} for "${task.title}".`,
+      type: 'info'
     });
 
     return {
@@ -881,6 +951,7 @@ class PersistenceService {
                   isAgentInitiated: true,
                   agentType: 'CALENDAR_SCHEDULER',
                   telemetryFeedback: 'PENDING',
+                  scheduledAt: eventTime.toISOString(),
                   structuredReasoning: {
                     metrics: {
                       observedDeadline: result.structuredReasoning?.metrics?.observedDeadline || 'N/A',

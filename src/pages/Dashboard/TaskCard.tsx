@@ -118,6 +118,12 @@ export default function TaskCard({ task, isLarge = false, onSelect, onTriggerCri
           </span>
           
           <div className="flex items-center gap-2">
+            {task.inProgress && (
+              <span className="text-[9px] font-mono font-bold tracking-widest text-[#00D4FF] uppercase bg-[#00D4FF]/10 border border-[#00D4FF]/30 px-2 py-0.5 rounded animate-pulse shadow-[0_0_8px_rgba(0,212,255,0.3)]">
+                ⚡ Focus Active
+              </span>
+            )}
+
             {isAgentRescheduled && (
               <span className="text-[9px] font-mono font-bold tracking-widest text-[#7B61FF] uppercase bg-[#7B61FF]/10 border border-[#7B61FF]/20 px-2 py-0.5 rounded">
                 🤖 Rescheduled

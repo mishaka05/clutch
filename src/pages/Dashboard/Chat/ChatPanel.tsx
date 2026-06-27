@@ -49,7 +49,8 @@ How can I rescue this deadline? I can:
     window.dispatchEvent(new CustomEvent('clutch-agent-status', { detail: 'evaluating' }));
 
     try {
-      const response = await generateChatResponseWithAI(task, hoursRemaining, messages, textToSend);
+      const agentLogs = await firebaseService.getAgentLogs();
+      const response = await generateChatResponseWithAI(task, hoursRemaining, messages, textToSend, agentLogs);
       
       const assistantMsg: ChatMessageType = { role: 'model', text: response };
       setMessages((prev) => [...prev, assistantMsg]);
@@ -68,7 +69,61 @@ How can I rescue this deadline? I can:
     setIsTyping(true);
     window.dispatchEvent(new CustomEvent('clutch-agent-status', { detail: 'scheduling' }));
     try {
-      await firebaseService.simulateGoogleCalendarSchedule(task.id, 45);
+      let customTimeStr = '';
+      let customDate: Date | undefined;
+
+      // Find the last assistant message containing "[Confirm Booking]"
+      const lastModelMsg = [...messages].reverse().find(m => m.role === 'model' && m.text.includes('[Confirm Booking]'));
+      if (lastModelMsg) {
+        // Parse time from model message, e.g., "**3:00 PM**" or "3:00 PM"
+        const timeMatch = lastModelMsg.text.match(/(\d{1,2}):(\d{2})\s*(PM|AM|pm|am)/);
+        if (timeMatch) {
+          const hours = parseInt(timeMatch[1], 10);
+          const minutes = parseInt(timeMatch[2], 10);
+          const ampm = timeMatch[3].toUpperCase();
+          
+          let targetHours = hours;
+          if (ampm === 'PM' && hours < 12) targetHours += 12;
+          else if (ampm === 'AM' && hours === 12) targetHours = 0;
+          
+          const d = new Date();
+          d.setHours(targetHours, minutes, 0, 0);
+          customDate = d;
+          customTimeStr = `${hours}:${minutes.toString().padStart(2, '0')} ${ampm}`;
+        }
+      }
+
+      // If we couldn't parse from model message, try user message
+      if (!customDate) {
+        const lastUserMsg = [...messages].reverse().find(m => m.role === 'user');
+        if (lastUserMsg) {
+          const timeMatch = lastUserMsg.text.match(/(\d{1,2})(?::(\d{2}))?\s*(pm|am|PM|AM)/i);
+          if (timeMatch) {
+            const hours = parseInt(timeMatch[1], 10);
+            const minutes = timeMatch[2] ? parseInt(timeMatch[2], 10) : 0;
+            const ampm = timeMatch[3].toUpperCase();
+            
+            let targetHours = hours;
+            if (ampm === 'PM' && hours < 12) targetHours += 12;
+            else if (ampm === 'AM' && hours === 12) targetHours = 0;
+            
+            const d = new Date();
+            d.setHours(targetHours, minutes, 0, 0);
+            customDate = d;
+            customTimeStr = `${hours}:${minutes.toString().padStart(2, '0')} ${ampm}`;
+          }
+        }
+      }
+
+      // Default fallback
+      if (!customDate) {
+        const d = new Date(Date.now() + 60 * 60 * 1000);
+        d.setMinutes(0, 0, 0);
+        customDate = d;
+        customTimeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      }
+
+      await firebaseService.simulateGoogleCalendarSchedule(task.id, 45, customDate.toISOString());
       
       // Direct UI response
       setMessages((prev) => [
@@ -76,7 +131,7 @@ How can I rescue this deadline? I can:
         { role: 'user', text: 'Yes, schedule that slot.' },
         { 
           role: 'model', 
-          text: `✅ **Confirmed Booking:** I have written a **45-minute focus block** starting at 4:00 PM directly in your Google Calendar. Risk mitigation successfully initiated. I have recorded this in your autonomous Agent Activity Log!` 
+          text: `✅ **Confirmed Booking:** I have written a **45-minute focus block** starting at **${customTimeStr}** directly in your Google Calendar. Risk mitigation successfully initiated. I have recorded this in your autonomous Agent Activity Log!` 
         }
       ]);
       onRescheduleCompleted();
@@ -95,7 +150,7 @@ How can I rescue this deadline? I can:
   };
 
   return (
-    <div className="flex flex-col h-full bg-[#0B1521] border-l border-[#1B2F46] w-full md:w-80 lg:w-96">
+    <div className="flex flex-col h-full bg-[#0B1521] border-l border-[#1B2F46] w-full">
       
       {/* Header Panel */}
       <div className="p-4 bg-[#0F1D2C] border-b border-[#1C2F46] flex items-center justify-between">
