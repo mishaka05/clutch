@@ -8,6 +8,7 @@ import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Clock, Flame, Shie
 import { Task, AgentLog } from '../../types';
 import { firebaseService } from '../../services/firebase';
 import Button from '../../components/Button';
+import { formatHumanFriendlyDeadline } from '../../utils/dateUtils';
 
 interface CalendarViewProps {
   tasks: Task[];
@@ -673,7 +674,7 @@ export default function CalendarView({ tasks, logs, onSelectTask, onRefresh }: C
                       </span>
                       <div className="flex items-center gap-1.5">
                         <span className="text-[10px] font-mono text-slate-400">
-                          {evt.time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          {formatHumanFriendlyDeadline(evt.time)}
                         </span>
                         {isFocus && (
                           <button

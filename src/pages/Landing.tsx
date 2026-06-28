@@ -103,48 +103,88 @@ export default function Landing({ onLoginSuccess }: LandingProps) {
                   fill="none"
                   xmlns="http://www.w3.org/2000/svg"
                   className="w-36 h-36 md:w-40 md:h-40 select-none pointer-events-none drop-shadow-[0_0_15px_rgba(139,92,246,0.3)]"
+                  style={{ overflow: 'visible' }}
                 >
                   <style>{`
-                    @keyframes cloverPulse {
+                    @keyframes cloverRipple {
                       0% {
-                        stroke-dashoffset: 100;
+                        transform: scale(0.1);
+                        stroke-opacity: 0.95;
+                      }
+                      20% {
+                        stroke-opacity: 0.85;
                       }
                       100% {
-                        stroke-dashoffset: 0;
+                        transform: scale(8);
+                        stroke-opacity: 0;
                       }
                     }
-                    .animate-clover-pulse {
-                      stroke-dasharray: 8 92;
-                      animation: cloverPulse 7s linear infinite;
+                    .animate-clover-ripple {
+                      transform-origin: 50px 50px;
+                      filter: drop-shadow(0 0 4px #00E676) blur(1px);
+                      animation: cloverRipple 4.4s cubic-bezier(0.3, 0.1, 0.3, 1) infinite;
                     }
                   `}</style>
                   <defs>
                     <linearGradient id="clover-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                      <stop offset="0%" stopColor="#A855F7" />
-                      <stop offset="33%" stopColor="#8B5CF6" />
-                      <stop offset="66%" stopColor="#6366F1" />
-                      <stop offset="100%" stopColor="#38BDF8" />
+                      <stop offset="0%" stopColor="#9D6CFF" />
+                      <stop offset="50%" stopColor="#7A5AF8" />
+                      <stop offset="100%" stopColor="#5B8CFF" />
                     </linearGradient>
                   </defs>
+                  {/* Soft energy ripples originating from center */}
+                  <circle
+                    cx="50"
+                    cy="50"
+                    r="10"
+                    fill="none"
+                    stroke="#00E676"
+                    strokeWidth="2.2"
+                    vectorEffect="non-scaling-stroke"
+                    className="animate-clover-ripple"
+                    style={{ animationDelay: '0s' }}
+                  />
+                  <circle
+                    cx="50"
+                    cy="50"
+                    r="10"
+                    fill="none"
+                    stroke="#00E676"
+                    strokeWidth="2.2"
+                    vectorEffect="non-scaling-stroke"
+                    className="animate-clover-ripple"
+                    style={{ animationDelay: '1.1s' }}
+                  />
+                  <circle
+                    cx="50"
+                    cy="50"
+                    r="10"
+                    fill="none"
+                    stroke="#00E676"
+                    strokeWidth="2.2"
+                    vectorEffect="non-scaling-stroke"
+                    className="animate-clover-ripple"
+                    style={{ animationDelay: '2.2s' }}
+                  />
+                  <circle
+                    cx="50"
+                    cy="50"
+                    r="10"
+                    fill="none"
+                    stroke="#00E676"
+                    strokeWidth="2.2"
+                    vectorEffect="non-scaling-stroke"
+                    className="animate-clover-ripple"
+                    style={{ animationDelay: '3.3s' }}
+                  />
                   {/* Base Clover Outline with gradient */}
                   <path
                     d="M 50 50 C 40 40, 32 30, 36 20 C 40 10, 48 14, 50 22 C 52 14, 60 10, 64 20 C 68 30, 60 40, 50 50 C 60 40, 70 32, 80 36 C 90 40, 86 48, 78 50 C 86 52, 90 60, 80 64 C 70 68, 60 60, 50 50 C 60 60, 68 70, 64 80 C 60 90, 52 86, 50 78 C 48 86, 40 90, 36 80 C 32 70, 40 60, 50 50 C 40 60, 30 68, 20 64 C 10 60, 14 52, 22 50 C 14 48, 10 40, 20 36 C 30 32, 40 40, 50 50 Z"
                     fill="none"
                     stroke="url(#clover-gradient)"
-                    strokeWidth="3.5"
+                    strokeWidth="1.8"
                     strokeLinecap="round"
                     strokeLinejoin="round"
-                  />
-                  {/* Traveling pulse animation path */}
-                  <path
-                    d="M 50 50 C 40 40, 32 30, 36 20 C 40 10, 48 14, 50 22 C 52 14, 60 10, 64 20 C 68 30, 60 40, 50 50 C 60 40, 70 32, 80 36 C 90 40, 86 48, 78 50 C 86 52, 90 60, 80 64 C 70 68, 60 60, 50 50 C 60 60, 68 70, 64 80 C 60 90, 52 86, 50 78 C 48 86, 40 90, 36 80 C 32 70, 40 60, 50 50 C 40 60, 30 68, 20 64 C 10 60, 14 52, 22 50 C 14 48, 10 40, 20 36 C 30 32, 40 40, 50 50 Z"
-                    fill="none"
-                    stroke="#22C55E"
-                    strokeWidth="3.5"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    pathLength="100"
-                    className="animate-clover-pulse"
                   />
                 </svg>
               </div>

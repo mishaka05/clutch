@@ -9,6 +9,7 @@ import { LogOut, Activity, Flame, LayoutDashboard, History, Bell, Calendar as Ca
 import { UserProfile, Task, AppNotification } from '../types';
 import AvatarPicker from './AvatarPicker';
 import { firebaseService } from '../services/firebase';
+import { formatHumanFriendlyDeadline } from '../utils/dateUtils';
 
 interface NavbarProps {
   user: UserProfile;
@@ -204,7 +205,7 @@ export default function Navbar({ user, tasks, activeTab, setActiveTab, onLogout 
                               {notif.body}
                             </p>
                             <div className="text-[9px] font-mono text-slate-500">
-                              {new Date(notif.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                              {formatHumanFriendlyDeadline(notif.timestamp)}
                             </div>
                           </div>
                           {!notif.isRead && (

@@ -24,6 +24,14 @@ function formatFriendlyDuration(minutes: number): string {
   }
 }
 
+function getDatetimeLocalValue(isoString: string): string {
+  if (!isoString) return '';
+  const date = new Date(isoString);
+  if (isNaN(date.getTime())) return '';
+  const pad = (num: number) => String(num).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
 interface TaskParserProps {
   onRefresh: () => Promise<void>;
   setSelectedTask: (task: Task | null) => void;
@@ -201,12 +209,24 @@ export default function TaskParser({ onRefresh, setSelectedTask }: TaskParserPro
 
               {/* Deadline */}
               <div className="col-span-1 sm:col-span-2">
-                <label className="block text-[10px] font-mono text-slate-500 uppercase tracking-wider font-semibold">Deadline (ISO / Text)</label>
+                <label className="block text-[10px] font-mono text-slate-500 uppercase tracking-wider font-semibold">Deadline</label>
                 <input
-                  type="text"
-                  value={parsedTask.deadline}
-                  onChange={(e) => setParsedTask({ ...parsedTask, deadline: e.target.value })}
-                  className="w-full bg-white/[0.02] border border-white/[0.06] focus:border-[#8B5CF6] text-xs text-white rounded-lg px-3 py-2.5 mt-1.5 font-mono outline-none transition-all"
+                  type="datetime-local"
+                  value={getDatetimeLocalValue(parsedTask.deadline)}
+                  onChange={(e) => {
+                    const localVal = e.target.value;
+                    if (localVal) {
+                      try {
+                        const iso = new Date(localVal).toISOString();
+                        setParsedTask({ ...parsedTask, deadline: iso });
+                      } catch (err) {
+                        setParsedTask({ ...parsedTask, deadline: localVal });
+                      }
+                    } else {
+                      setParsedTask({ ...parsedTask, deadline: '' });
+                    }
+                  }}
+                  className="w-full bg-white/[0.02] border border-white/[0.06] focus:border-[#8B5CF6] text-xs text-white rounded-lg px-3 py-2.5 mt-1.5 font-mono outline-none transition-all cursor-pointer"
                 />
               </div>
 

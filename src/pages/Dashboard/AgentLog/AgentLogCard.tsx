@@ -7,6 +7,7 @@ import React from 'react';
 import { AlertTriangle, Sparkles, Check, Play } from 'lucide-react';
 import { AgentLog } from '../../../types';
 import { firebaseService } from '../../../services/firebase';
+import { formatHumanFriendlyDeadline } from '../../../utils/dateUtils';
 import ExplainabilityPanel from './ExplainabilityPanel';
 
 interface AgentLogCardProps {
@@ -84,7 +85,7 @@ export default function AgentLogCard({ log, onRefresh }: AgentLogCardProps) {
           </div>
           <div className="flex items-center gap-2">
             <span className="text-[9px] font-mono text-slate-500 uppercase tracking-widest font-semibold">
-              {new Date(log.timestamp).toLocaleDateString()} {new Date(log.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+              {formatHumanFriendlyDeadline(log.timestamp)}
             </span>
           </div>
         </div>

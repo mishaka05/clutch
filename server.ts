@@ -156,55 +156,125 @@ function simulateTaskParser(userInput: string): ParsedTaskResponse {
     priority = 'low';
   }
 
-  // 4. Resolve relative time/deadline
-  if (lower.includes('tomorrow')) {
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    if (lower.includes('8 pm') || lower.includes('8pm')) {
-      tomorrow.setHours(20, 0, 0, 0);
-    } else {
-      tomorrow.setHours(12, 0, 0, 0);
-    }
-    deadline = tomorrow.toISOString();
-  } else if (lower.includes('tonight')) {
-    const tonight = new Date();
-    tonight.setHours(23, 0, 0, 0);
-    deadline = tonight.toISOString();
-  } else if (lower.includes('sunday')) {
-    // Upcoming Sunday
-    const d = new Date();
-    const day = d.getDay();
-    const daysToAdd = (7 - day) % 7 || 7; // if today is Sunday, move to next Sunday
-    d.setDate(d.getDate() + daysToAdd);
-    if (lower.includes('evening')) {
-      d.setHours(18, 0, 0, 0);
-    } else {
-      d.setHours(12, 0, 0, 0);
-    }
-    deadline = d.toISOString();
-  } else if (lower.includes('in 2 days')) {
-    const twoDays = new Date();
-    twoDays.setDate(twoDays.getDate() + 2);
-    deadline = twoDays.toISOString();
-  } else if (lower.includes('in 1h 45m') || lower.includes('1h 45m')) {
-    deadline = new Date(Date.now() + (1 * 60 + 45) * 60 * 1000).toISOString();
-  }
+  // 4. Resolve relative time/deadline and clean title
+  // Helper to parse temporal phrases and clean the title
+  const parseTemporalPhrases = (input: string) => {
+    let cleaned = input;
+    let deadlineDate = new Date();
+    let hasDateMatch = false;
 
-  // 5. Clean Title extraction
-  // Let's strip out action words and scheduling/progress/duration annotations
-  let cleanTitle = userInput;
+    // Helper to get upcoming day of week
+    const getUpcomingDay = (dayName: string, nextFlag = false) => {
+      const daysOfWeek = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+      const targetDayIndex = daysOfWeek.indexOf(dayName);
+      if (targetDayIndex === -1) return null;
+      
+      const now = new Date();
+      const currentDayIndex = now.getDay();
+      let daysToAdd = targetDayIndex - currentDayIndex;
+      if (daysToAdd <= 0) {
+        daysToAdd += 7; // force next week if it's today or already past
+      }
+      if (nextFlag && daysToAdd < 7) {
+        daysToAdd += 7; // force next week's day
+      }
+      const targetDate = new Date();
+      targetDate.setDate(now.getDate() + daysToAdd);
+      return targetDate;
+    };
+
+    // Check for specific hours/times in the input (e.g. "7 pm", "9:30 PM")
+    const timeRegex = /\b(\d{1,2})(?::(\d{2}))?\s*([ap]m)\b/i;
+    const timeMatch = cleaned.match(timeRegex);
+    let parsedHour: number | null = null;
+    let parsedMinute = 0;
+    if (timeMatch) {
+      let hr = parseInt(timeMatch[1], 10);
+      const min = timeMatch[2] ? parseInt(timeMatch[2], 10) : 0;
+      const ampm = timeMatch[3].toLowerCase();
+      if (ampm === 'pm' && hr < 12) hr += 12;
+      if (ampm === 'am' && hr === 12) hr = 0;
+      parsedHour = hr;
+      parsedMinute = min;
+      cleaned = cleaned.replace(timeRegex, '');
+    }
+
+    // A. "next [weekday]" / "this [weekday]" / "[weekday]"
+    const weekdayRegex = /\b(next|this)?\s*(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i;
+    const weekdayMatch = cleaned.match(weekdayRegex);
+    if (weekdayMatch) {
+      const modifier = weekdayMatch[1] ? weekdayMatch[1].toLowerCase() : '';
+      const dayName = weekdayMatch[2].toLowerCase();
+      const nextFlag = modifier === 'next';
+      const targetDate = getUpcomingDay(dayName, nextFlag);
+      if (targetDate) {
+        deadlineDate = targetDate;
+        hasDateMatch = true;
+      }
+      cleaned = cleaned.replace(weekdayRegex, '');
+    }
+    // B. "tomorrow"
+    else if (/\btomorrow\b/i.test(cleaned)) {
+      deadlineDate.setDate(deadlineDate.getDate() + 1);
+      hasDateMatch = true;
+      cleaned = cleaned.replace(/\btomorrow\b/i, '');
+    }
+    // C. "tonight"
+    else if (/\btonight\b/i.test(cleaned)) {
+      if (parsedHour === null) {
+        parsedHour = 23;
+        parsedMinute = 0;
+      }
+      hasDateMatch = true;
+      cleaned = cleaned.replace(/\btonight\b/i, '');
+    }
+    // D. "in [N] days"
+    else {
+      const relativeDaysMatch = cleaned.match(/\bin\s+(\d+)\s+days?\b/i);
+      if (relativeDaysMatch) {
+        const days = parseInt(relativeDaysMatch[1], 10);
+        deadlineDate.setDate(deadlineDate.getDate() + days);
+        hasDateMatch = true;
+        cleaned = cleaned.replace(relativeDaysMatch[0], '');
+      }
+    }
+
+    if (parsedHour !== null) {
+      deadlineDate.setHours(parsedHour, parsedMinute, 0, 0);
+    } else if (hasDateMatch) {
+      deadlineDate.setHours(12, 0, 0, 0); // Default to noon for relative deadlines if no hour specified
+    } else {
+      deadlineDate = new Date(Date.now() + 4 * 3600 * 1000); // default 4 hours from now
+    }
+
+    return {
+      cleanTitle: cleaned,
+      deadline: deadlineDate.toISOString()
+    };
+  };
+
+  const parsed = parseTemporalPhrases(userInput);
+  deadline = parsed.deadline;
+  let cleanTitle = parsed.cleanTitle;
+
   // Remove action prefixes
   cleanTitle = cleanTitle.replace(/^(complete|finish|create|do|draft|write|assemble|review)\s+/gi, '');
   
   // Remove phrases starting with "before", "by", "due on", "around", "at", "already finished", etc.
   cleanTitle = cleanTitle.replace(/\s*(?:before|by|due|around|at|already|finished|completed|progress|complete|duration|estimated|complexity|priority)\s+.*$/gi, '');
-  // Also strip common trailing characters
-  cleanTitle = cleanTitle.replace(/[.,;!]+$/, '').trim();
+  
+  // Strip common trailing keywords that might have been part of the scheduling phrase (e.g., "for", "on", "by", "at", "due")
+  cleanTitle = cleanTitle.replace(/\s+\b(for|on|by|at|due|this|next|tomorrow|tonight)\b\s*$/gi, '');
+
+  // Strip common trailing characters
+  cleanTitle = cleanTitle.replace(/[.,;!]+$/, '').replace(/\s+/g, ' ').trim();
 
   // Capitalize nicely
   if (cleanTitle) {
     cleanTitle = cleanTitle.charAt(0).toUpperCase() + cleanTitle.slice(1);
     title = cleanTitle;
+  } else {
+    title = 'Untitled Task';
   }
 
   return { title, deadline, complexity, priority, estimatedDuration, category, progress };

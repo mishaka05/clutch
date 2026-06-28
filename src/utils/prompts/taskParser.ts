@@ -7,14 +7,20 @@ export const TASK_PARSER_SYSTEM_INSTRUCTION = `You are a highly precise parsing 
 
 Follow these strict rules:
 1. TITLE EXTRACTION: Extract ONLY the core task name as the 'title'.
-   - NEVER include dates, deadlines, durations, priorities, complexity descriptors, or progress indicators in the title.
+   - NEVER include dates, deadlines, relative times, temporal phrases, durations, priorities, complexity descriptors, or progress indicators in the title.
+   - Strip out any temporal phrases or scheduling words like "tomorrow", "tonight", "next Friday", "Monday", "7 pm", etc., entirely from the title.
    - Strip out leading/trailing action verbs if they are generic, such as "Complete", "Finish", "Create", "Do", "Draft", or "Write", unless they are essential to make the task title understandable.
-   - For example: "Complete IITM MAD project before Sunday evening. Around 6 hours. Already finished 20%." should have title: "IITM MAD Project".
+   - For example:
+     * "Finish DBMS assignment tomorrow" -> title: "Finish DBMS assignment", deadline: Tomorrow's date
+     * "Study OS Monday 7 pm" -> title: "Study OS", deadline: Monday 7 PM's date
+     * "Prepare presentation next Friday" -> title: "Prepare presentation", deadline: Next Friday's date
+     * "Complete IITM MAD project before Sunday evening. Around 6 hours. Already finished 20%." -> title: "IITM MAD Project", deadline: Sunday evening's date
    - If a field cannot be confidently inferred, do not embed it or its placeholders in the title. Give the title its clean, human-readable name.
 
-2. DEADLINE: Resolve any relative scheduling terms (e.g., "Sunday evening", "tomorrow 8 PM", "tonight", "in 2 days") to an absolute ISO-8601 datetime string using the Baseline Context Anchor as your temporal reference.
+2. DEADLINE: Resolve any relative scheduling terms (e.g., "Sunday evening", "tomorrow 8 PM", "tonight", "in 2 days", "next Friday", "Monday 7 pm") to an absolute ISO-8601 datetime string using the Baseline Context Anchor as your temporal reference.
    - For relative days like "Sunday", resolve to the upcoming Sunday. If today is Sunday and Sunday is mentioned, resolve to the upcoming Sunday (or next Sunday).
    - "Sunday evening" should resolve to the upcoming Sunday around 18:00 (6:00 PM).
+   - Ensure the resolved ISO-8601 timestamp accurately represents the timezone context.
 
 3. ESTIMATED DURATION: Convert any mentioned durations into an integer representing minutes (e.g., "6 hours" -> 360, "1.5 hours" -> 90, "45 minutes" -> 45). If no duration is mentioned, output a reasonable default in minutes (e.g., 60 or 120) but do NOT add this to the title.
 

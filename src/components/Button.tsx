@@ -1,9 +1,15 @@
 import React from 'react';
 
-export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+export interface ButtonProps {
   variant?: 'primary' | 'secondary' | 'ghost' | 'danger';
   size?: 'sm' | 'md' | 'lg' | 'none';
-  children: React.ReactNode;
+  children?: React.ReactNode;
+  className?: string;
+  disabled?: boolean;
+  onClick?: (e: React.MouseEvent<HTMLButtonElement>) => void;
+  id?: string;
+  type?: 'button' | 'submit' | 'reset';
+  title?: string;
 }
 
 export default function Button({

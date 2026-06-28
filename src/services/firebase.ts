@@ -3,8 +3,129 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import { initializeApp } from 'firebase/app';
+import { 
+  getAuth, 
+  signInWithPopup, 
+  GoogleAuthProvider, 
+  signInAnonymously,
+  onAuthStateChanged, 
+  User, 
+  signOut,
+  updateProfile
+} from 'firebase/auth';
+import { 
+  getFirestore, 
+  getDocFromServer,
+  collection, 
+  doc, 
+  getDocs, 
+  getDoc, 
+  setDoc, 
+  addDoc, 
+  updateDoc, 
+  deleteDoc, 
+  query, 
+  where, 
+  orderBy, 
+  limit, 
+  writeBatch
+} from 'firebase/firestore';
+import firebaseConfig from '../../firebase-applet-config.json';
 import { Task, UserProfile, AgentLog, AppNotification, SubTask } from '../types';
 import { calculateTaskRisk } from '../utils/riskEngine';
+
+// ==========================================
+// FIREBASE CORE INITIALIZATION
+// ==========================================
+
+// ==========================================
+// FIREBASE CORE INITIALIZATION & AUDIT
+// ==========================================
+
+console.log("=== FIREBASE INITIALIZATION AUDIT ===");
+console.log("Firebase Config Project ID:", firebaseConfig.projectId);
+console.log("Firebase Config Auth Domain:", firebaseConfig.authDomain);
+console.log("Firebase Config App ID:", firebaseConfig.appId);
+console.log("Initialization Path: src/services/firebase.ts (sole initialization point)");
+
+const app = initializeApp(firebaseConfig);
+export const auth = getAuth(app);
+
+// Initialize Firestore using standard getFirestore with no custom databaseId parameter
+// to ensure it connects to the standard default database of the clutch-ccfdd project.
+const dbInstance = getFirestore(app);
+export const db = dbInstance;
+console.log("Firestore Instance: Initialized default database successfully.");
+console.log("======================================");
+
+export enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+export interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId?: string | null;
+    email?: string | null;
+    emailVerified?: boolean | null;
+    isAnonymous?: boolean | null;
+    tenantId?: string | null;
+    providerInfo?: {
+      providerId?: string | null;
+      email?: string | null;
+    }[];
+  }
+}
+
+export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null): never {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: auth.currentUser?.uid,
+      email: auth.currentUser?.email,
+      emailVerified: auth.currentUser?.emailVerified,
+      isAnonymous: auth.currentUser?.isAnonymous,
+      tenantId: auth.currentUser?.tenantId,
+      providerInfo: auth.currentUser?.providerData?.map(provider => ({
+        providerId: provider.providerId,
+        email: provider.email,
+      })) || []
+    },
+    operationType,
+    path
+  };
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  throw new Error(JSON.stringify(errInfo));
+}
+
+// Run a connection test to diagnose connectivity and verify that we are not locked offline
+async function runFirestoreConnectionTest() {
+  try {
+    const testDocRef = doc(db, 'users', 'connection_test_doc');
+    await getDocFromServer(testDocRef);
+    console.log("Firestore Connection Test: Successfully reached Firebase servers (online status verified).");
+  } catch (error: any) {
+    if (error instanceof Error && error.message.includes('offline')) {
+      console.error("Firestore Connection Test Error: Please check your Firebase configuration or network. The client is offline.", error);
+    } else {
+      console.log("Firestore Connection Test: Server is reachable. Received expected permissions denial / not found error code:", error?.code || error);
+    }
+  }
+}
+runFirestoreConnectionTest();
+
+// Google Auth Provider setup with Google Calendar scopes
+const provider = new GoogleAuthProvider();
+provider.addScope('https://www.googleapis.com/auth/calendar');
+provider.addScope('https://www.googleapis.com/auth/calendar.events');
 
 // ==========================================
 // PRELOADED STORY-DRIVEN DEMO TASKS
@@ -249,29 +370,93 @@ function getSeededDemoLogs(): AgentLog[] {
 }
 
 // ==========================================
-// CORE PERSISTENCE LAYER ADAPTERS
+// PERSISTENCE & INTEGRATION SERVICE
 // ==========================================
 
 class PersistenceService {
   private currentUser: UserProfile | null = null;
   private onUserListeners: ((user: UserProfile | null) => void)[] = [];
+  private isAuthResolved = false;
+
+  // Real in-memory cache for Google Access Token (required by oauth guidelines)
+  private googleAccessToken: string | null = null;
 
   constructor() {
-    // Try to load cached user session
-    const savedUser = localStorage.getItem('clutch_session');
-    if (savedUser) {
-      try {
-        this.currentUser = JSON.parse(savedUser);
-      } catch {
-        this.currentUser = null;
-      }
+    // Check initial session storage for the google access token (if still within same browser session context)
+    const savedToken = sessionStorage.getItem('clutch_g_token');
+    if (savedToken) {
+      this.googleAccessToken = savedToken;
     }
+
+    // Subscribe to real Firebase auth changes
+    onAuthStateChanged(auth, async (firebaseUser) => {
+      if (firebaseUser) {
+        try {
+          const userDocRef = doc(db, 'users', firebaseUser.uid);
+          const userDocSnap = await getDoc(userDocRef);
+
+          let name = firebaseUser.displayName || 'Operator';
+          let avatarId = 'purple';
+          let mode: 'demo' | 'google' = firebaseUser.isAnonymous ? 'demo' : 'google';
+
+          if (userDocSnap.exists()) {
+            const data = userDocSnap.data();
+            name = data.name || name;
+            avatarId = data.avatarId || avatarId;
+            mode = data.mode || mode;
+          } else {
+            // Write user profile to firestore
+            const newProfile = {
+              uid: firebaseUser.uid,
+              name,
+              email: firebaseUser.email || null,
+              avatarId,
+              mode,
+              createdAt: new Date().toISOString()
+            };
+            await setDoc(userDocRef, newProfile);
+          }
+
+          this.currentUser = {
+            uid: firebaseUser.uid,
+            name,
+            email: firebaseUser.email || null,
+            avatarId,
+            mode,
+            createdAt: firebaseUser.metadata.creationTime || new Date().toISOString()
+          };
+
+          // Synchronize/Seed Initial Data if brand new user (Google or Demo/Anonymous)
+          await this.seedInitialDataIfNewUser(firebaseUser.uid);
+
+        } catch (err) {
+          console.error("Firestore user profile fetch/create error:", err);
+          // Fallback to offline user profile state
+          this.currentUser = {
+            uid: firebaseUser.uid,
+            name: firebaseUser.displayName || 'Operator',
+            email: firebaseUser.email || null,
+            avatarId: 'purple',
+            mode: firebaseUser.isAnonymous ? 'demo' : 'google',
+            createdAt: new Date().toISOString()
+          };
+        }
+      } else {
+        this.currentUser = null;
+        this.googleAccessToken = null;
+        sessionStorage.removeItem('clutch_g_token');
+      }
+      this.isAuthResolved = true;
+      this.notifyAuthListeners();
+    });
   }
 
-  // Auth Methods
+  // Auth Listeners & State Change
   public onAuthStateChanged(callback: (user: UserProfile | null) => void): () => void {
     this.onUserListeners.push(callback);
-    callback(this.currentUser);
+    if (this.isAuthResolved) {
+      callback(this.currentUser);
+    }
     return () => {
       this.onUserListeners = this.onUserListeners.filter(cb => cb !== callback);
     };
@@ -281,44 +466,113 @@ class PersistenceService {
     this.onUserListeners.forEach(cb => cb(this.currentUser));
   }
 
+  // Real Google Sign In Flow with popup
   public async signInWithGoogle(): Promise<UserProfile> {
-    // Real auth fallback. In client SPA MVP, we simulate auth using prompt name.
-    return this.signInAsDemo('Guest Operator', 'purple');
+    try {
+      const result = await signInWithPopup(auth, provider);
+      const credential = GoogleAuthProvider.credentialFromResult(result);
+      if (credential?.accessToken) {
+        this.googleAccessToken = credential.accessToken;
+        // Keep in session storage so reload within the same session handles calendar sync
+        sessionStorage.setItem('clutch_g_token', credential.accessToken);
+        this.setOutageState('oauth_expired', false);
+      } else {
+        console.warn("No calendar scopes authorized, calendar will use local scheduling");
+      }
+
+      const uid = result.user.uid;
+      const userDocRef = doc(db, 'users', uid);
+      const userDocSnap = await getDoc(userDocRef);
+
+      let name = result.user.displayName || 'Google Operator';
+      let avatarId = 'purple';
+
+      if (userDocSnap.exists()) {
+        const data = userDocSnap.data();
+        name = data.name || name;
+        avatarId = data.avatarId || avatarId;
+      } else {
+        await setDoc(userDocRef, {
+          uid,
+          name,
+          email: result.user.email,
+          avatarId,
+          mode: 'google',
+          createdAt: new Date().toISOString()
+        });
+      }
+
+      const profile: UserProfile = {
+        uid,
+        name,
+        email: result.user.email,
+        avatarId,
+        mode: 'google',
+        createdAt: result.user.metadata.creationTime || new Date().toISOString()
+      };
+
+      this.currentUser = profile;
+      this.isAuthResolved = true;
+      this.notifyAuthListeners();
+
+      await this.seedInitialDataIfNewUser(uid);
+
+      return profile;
+    } catch (err: any) {
+      console.error("Firebase Google Popup authentication failed:", err);
+      throw err;
+    }
   }
 
+  // Sign In as Demo Operator using Anonymous auth + user doc setup
   public async signInAsDemo(name: string, avatarId: string): Promise<UserProfile> {
-    const profile: UserProfile = {
-      uid: 'demo-user-123',
-      name: name.trim() || 'Void Walker',
-      email: 'hbee8559@gmail.com',
-      avatarId,
-      mode: 'demo',
-      createdAt: new Date().toISOString(),
-    };
-    
-    this.currentUser = profile;
-    localStorage.setItem('clutch_session', JSON.stringify(profile));
-    
-    // Seed initial demo data if empty
-    if (!localStorage.getItem('clutch_tasks')) {
-      const tasks = getSeededDemoTasks(profile.uid);
-      localStorage.setItem('clutch_tasks', JSON.stringify(tasks));
+    try {
+      const result = await signInAnonymously(auth);
+      const uid = result.user.uid;
+
+      const userDocRef = doc(db, 'users', uid);
+      const profileData = {
+        uid,
+        name: name.trim() || 'Void Walker',
+        email: null,
+        avatarId,
+        mode: 'demo',
+        createdAt: new Date().toISOString()
+      };
+      await setDoc(userDocRef, profileData);
+
+      const profile: UserProfile = {
+        uid,
+        name: profileData.name,
+        email: null,
+        avatarId,
+        mode: 'demo',
+        createdAt: profileData.createdAt
+      };
+
+      this.currentUser = profile;
+      this.isAuthResolved = true;
+      this.notifyAuthListeners();
+
+      await this.seedInitialDataIfNewUser(uid);
+
+      return profile;
+    } catch (err: any) {
+      console.error("Anonymous Demo sign in failed:", err);
+      throw err;
     }
-    if (!localStorage.getItem('clutch_logs')) {
-      const logs = getSeededDemoLogs();
-      localStorage.setItem('clutch_logs', JSON.stringify(logs));
-    }
-    
-    this.notifyAuthListeners();
-    return profile;
   }
 
   public async logout(): Promise<void> {
+    try {
+      await signOut(auth);
+    } catch (err) {
+      console.error("Firebase logout failed:", err);
+    }
     this.currentUser = null;
-    localStorage.removeItem('clutch_session');
-    // Clear demo tasks/logs on logout so they reseed fresh next time
-    localStorage.removeItem('clutch_tasks');
-    localStorage.removeItem('clutch_logs');
+    this.googleAccessToken = null;
+    sessionStorage.removeItem('clutch_g_token');
+    this.isAuthResolved = true;
     this.notifyAuthListeners();
   }
 
@@ -326,23 +580,73 @@ class PersistenceService {
     return this.currentUser;
   }
 
-  public updateUserProfile(name: string, avatarId: string) {
+  public async updateUserProfile(name: string, avatarId: string) {
     if (this.currentUser) {
-      this.currentUser.name = name;
-      this.currentUser.avatarId = avatarId;
-      localStorage.setItem('clutch_session', JSON.stringify(this.currentUser));
-      this.notifyAuthListeners();
+      const uid = this.currentUser.uid;
+      try {
+        await updateDoc(doc(db, 'users', uid), {
+          name,
+          avatarId
+        });
+        this.currentUser.name = name;
+        this.currentUser.avatarId = avatarId;
+        this.notifyAuthListeners();
+      } catch (err) {
+        console.error("Error updating profile in Firestore:", err);
+      }
     }
   }
 
-  // Tasks Firestore Mimic CRUD
-  public async getTasks(): Promise<Task[]> {
-    const tasksRaw = localStorage.getItem('clutch_tasks');
-    if (!tasksRaw) return [];
+  // Seeding initial data under the unique Firebase UID in Firestore
+  private async seedInitialDataIfNewUser(uid: string) {
     try {
-      const tasks: Task[] = JSON.parse(tasksRaw);
-      
-      // Dynamic recalculation of risk scores so deadlines stay relative
+      const tasksColRef = collection(db, 'users', uid, 'tasks');
+      const testSnap = await getDocs(query(tasksColRef, limit(1)));
+
+      if (testSnap.empty) {
+        console.log(`[Database Engine] Seeding original story tasks and logs for isolated user profile: ${uid}`);
+        
+        // Batch seed tasks
+        const demoTasks = getSeededDemoTasks(uid);
+        for (const task of demoTasks) {
+          await setDoc(doc(db, 'users', uid, 'tasks', task.id), task);
+        }
+
+        // Batch seed logs
+        const demoLogs = getSeededDemoLogs();
+        for (const log of demoLogs) {
+          await setDoc(doc(db, 'users', uid, 'logs', log.id), { ...log, uid });
+        }
+
+        // Welcome Notification
+        await this.addNotification({
+          title: '🔥 Decision Core Activated',
+          body: 'Welcome back. Autonomous agents have indexed your active timelines. Monitor risk gauges in real-time below.',
+          type: 'success'
+        });
+      }
+    } catch (err) {
+      console.error("Failed to seed initial user workspace collections:", err);
+    }
+  }
+
+  // ==========================================
+  // REAL FIRESTORE CRUD OPERATIONS (USER-ISOLATED)
+  // ==========================================
+
+  public async getTasks(): Promise<Task[]> {
+    const uid = this.currentUser?.uid;
+    if (!uid) return [];
+
+    try {
+      const tasksRef = collection(db, 'users', uid, 'tasks');
+      const snapshot = await getDocs(tasksRef);
+      const tasks: Task[] = [];
+      snapshot.forEach(docSnap => {
+        tasks.push(docSnap.data() as Task);
+      });
+
+      // Recalculate risk scores dynamically relative to the current time
       const updatedTasks = tasks.map((task) => {
         const riskResult = calculateTaskRisk({
           deadline: task.deadline,
@@ -356,16 +660,18 @@ class PersistenceService {
           lastRiskEvaluation: task.lastRiskEvaluation || null,
         };
       });
-      
-      this.saveTasksInternal(updatedTasks);
+
       return updatedTasks;
-    } catch {
+    } catch (err) {
+      console.error("Firestore getTasks failed, using local offline cache fallback:", err);
       return [];
     }
   }
 
   public async addTask(task: Omit<Task, 'id' | 'uid' | 'createdAt' | 'updatedAt' | 'riskScore' | 'lastRiskEvaluation' | 'lastAIInteraction'>): Promise<Task> {
-    const uid = this.currentUser?.uid || 'guest';
+    const uid = this.currentUser?.uid;
+    if (!uid) throw new Error('Unauthenticated operation');
+
     const riskResult = calculateTaskRisk({
       deadline: task.deadline,
       progress: task.progress,
@@ -373,9 +679,10 @@ class PersistenceService {
       estimatedDuration: task.estimatedDuration,
     });
 
+    const taskId = 'task-' + Math.random().toString(36).substr(2, 9);
     const newTask: Task = {
       ...task,
-      id: 'task-' + Math.random().toString(36).substr(2, 9),
+      id: taskId,
       uid,
       riskScore: riskResult.riskScore,
       createdAt: new Date().toISOString(),
@@ -384,125 +691,442 @@ class PersistenceService {
       lastAIInteraction: null,
     };
 
-    const tasks = await this.getTasks();
-    tasks.push(newTask);
-    this.saveTasksInternal(tasks);
+    try {
+      await setDoc(doc(db, 'users', uid, 'tasks', taskId), newTask);
 
-    // Log the action
-    await this.addAgentLog({
-      taskId: newTask.id,
-      taskTitle: newTask.title,
-      actionType: 'create_task',
-      actionTaken: 'Task Initialized',
-      reason: `Task successfully parsed and set up with ${riskResult.riskScore}% risk ratio.`,
-      isAgentInitiated: false,
-    });
+      await this.addAgentLog({
+        taskId: newTask.id,
+        taskTitle: newTask.title,
+        actionType: 'create_task',
+        actionTaken: 'Task Initialized',
+        reason: `Task parsed successfully and set up in decision matrix with ${riskResult.riskScore}% completion risk.`,
+        isAgentInitiated: false,
+      });
 
-    return newTask;
+      return newTask;
+    } catch (err) {
+      console.error("Firestore addTask failed:", err);
+      throw err;
+    }
   }
 
   public async updateTask(id: string, updates: Partial<Task>): Promise<Task> {
-    const tasks = await this.getTasks();
-    const taskIndex = tasks.findIndex((t) => t.id === id);
-    if (taskIndex === -1) {
-      throw new Error('Task not found');
+    const uid = this.currentUser?.uid;
+    if (!uid) throw new Error('Unauthenticated operation');
+
+    try {
+      const taskDocRef = doc(db, 'users', uid, 'tasks', id);
+      const taskDocSnap = await getDoc(taskDocRef);
+      if (!taskDocSnap.exists()) {
+        throw new Error('Requested task does not exist');
+      }
+
+      const currentTask = taskDocSnap.data() as Task;
+      const mergedTask = {
+        ...currentTask,
+        ...updates,
+        updatedAt: new Date().toISOString(),
+      };
+
+      const riskResult = calculateTaskRisk({
+        deadline: mergedTask.deadline,
+        progress: mergedTask.progress,
+        complexity: mergedTask.complexity,
+        estimatedDuration: mergedTask.estimatedDuration,
+      });
+      mergedTask.riskScore = riskResult.riskScore;
+      mergedTask.lastRiskEvaluation = new Date().toISOString();
+
+      await setDoc(taskDocRef, mergedTask);
+      return mergedTask;
+    } catch (err) {
+      console.error("Firestore updateTask failed:", err);
+      throw err;
     }
-
-    const currentTask = tasks[taskIndex];
-    const mergedTask = {
-      ...currentTask,
-      ...updates,
-      updatedAt: new Date().toISOString(),
-    };
-
-    // Recalculate risk on major state changes (progress, deadline, complexity, duration)
-    const riskResult = calculateTaskRisk({
-      deadline: mergedTask.deadline,
-      progress: mergedTask.progress,
-      complexity: mergedTask.complexity,
-      estimatedDuration: mergedTask.estimatedDuration,
-    });
-    mergedTask.riskScore = riskResult.riskScore;
-    mergedTask.lastRiskEvaluation = new Date().toISOString();
-
-    tasks[taskIndex] = mergedTask;
-    this.saveTasksInternal(tasks);
-    return mergedTask;
   }
 
   public async deleteTask(id: string): Promise<void> {
-    const tasks = await this.getTasks();
-    const filtered = tasks.filter((t) => t.id !== id);
-    this.saveTasksInternal(filtered);
-  }
+    const uid = this.currentUser?.uid;
+    if (!uid) throw new Error('Unauthenticated operation');
 
-  private saveTasksInternal(tasks: Task[]) {
-    localStorage.setItem('clutch_tasks', JSON.stringify(tasks));
-  }
-
-  // Chat Conversations Persistence
-  public async getTaskConversation(taskId: string): Promise<{ role: 'user' | 'model'; text: string }[]> {
-    const rawConversations = localStorage.getItem('clutch_conversations');
-    if (!rawConversations) return [];
     try {
-      const conversations = JSON.parse(rawConversations);
-      return conversations[taskId] || [];
-    } catch {
+      const taskDocRef = doc(db, 'users', uid, 'tasks', id);
+      const taskDocSnap = await getDoc(taskDocRef);
+
+      if (taskDocSnap.exists()) {
+        const task = taskDocSnap.data() as Task;
+        // Clean up Google Calendar event if present and synced
+        if (task.googleCalendarEventId) {
+          console.log(`[Google Sync] Cleaning up scheduled event on deletion: ${task.googleCalendarEventId}`);
+          await this.deleteCalendarEvent(task.googleCalendarEventId);
+        }
+      }
+
+      await deleteDoc(taskDocRef);
+    } catch (err) {
+      console.error("Firestore deleteTask failed:", err);
+    }
+  }
+
+  // ==========================================
+  // CONVERSATIONS PERSISTENCE (USER-ISOLATED)
+  // ==========================================
+
+  public async getTaskConversation(taskId: string): Promise<{ role: 'user' | 'model'; text: string }[]> {
+    const uid = this.currentUser?.uid;
+    if (!uid) return [];
+
+    try {
+      const convDocRef = doc(db, 'users', uid, 'conversations', taskId);
+      const convSnap = await getDoc(convDocRef);
+      if (convSnap.exists()) {
+        return convSnap.data().messages || [];
+      }
+      return [];
+    } catch (err) {
+      console.error("Firestore getTaskConversation failed:", err);
       return [];
     }
   }
 
   public async saveTaskConversation(taskId: string, messages: { role: 'user' | 'model'; text: string }[]): Promise<void> {
-    const rawConversations = localStorage.getItem('clutch_conversations');
-    let conversations: Record<string, { role: 'user' | 'model'; text: string }[]> = {};
-    if (rawConversations) {
-      try {
-        conversations = JSON.parse(rawConversations);
-      } catch {
-        conversations = {};
-      }
+    const uid = this.currentUser?.uid;
+    if (!uid) return;
+
+    try {
+      await setDoc(doc(db, 'users', uid, 'conversations', taskId), { messages });
+    } catch (err) {
+      console.error("Firestore saveTaskConversation failed:", err);
     }
-    conversations[taskId] = messages;
-    localStorage.setItem('clutch_conversations', JSON.stringify(conversations));
   }
 
-  // Agent Activity Logs CRUD
+  // ==========================================
+  // LOGS PERSISTENCE (USER-ISOLATED)
+  // ==========================================
+
   public async getAgentLogs(): Promise<AgentLog[]> {
-    const logsRaw = localStorage.getItem('clutch_logs');
-    if (!logsRaw) return [];
+    const uid = this.currentUser?.uid;
+    if (!uid) return [];
+
     try {
-      return JSON.parse(logsRaw);
-    } catch {
+      const logsRef = collection(db, 'users', uid, 'logs');
+      const snapshot = await getDocs(logsRef);
+      const logs: AgentLog[] = [];
+      snapshot.forEach(docSnap => {
+        logs.push(docSnap.data() as AgentLog);
+      });
+      return logs.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    } catch (err) {
+      console.error("Firestore getAgentLogs failed:", err);
       return [];
     }
   }
 
   public async deleteAgentLog(logId: string): Promise<void> {
-    const logs = await this.getAgentLogs();
-    const updated = logs.filter(l => l.id !== logId);
-    localStorage.setItem('clutch_logs', JSON.stringify(updated));
+    const uid = this.currentUser?.uid;
+    if (!uid) return;
+
+    try {
+      const logDocRef = doc(db, 'users', uid, 'logs', logId);
+      const logDocSnap = await getDoc(logDocRef);
+
+      if (logDocSnap.exists()) {
+        const logData = logDocSnap.data() as AgentLog;
+        if (logData.taskId) {
+          // Fetch corresponding task and delete Google Calendar event
+          const taskDocRef = doc(db, 'users', uid, 'tasks', logData.taskId);
+          const taskSnap = await getDoc(taskDocRef);
+          if (taskSnap.exists()) {
+            const task = taskSnap.data() as Task;
+            if (task.googleCalendarEventId) {
+              console.log(`[Google Sync] Cancelling Google Calendar focus session: ${task.googleCalendarEventId}`);
+              await this.deleteCalendarEvent(task.googleCalendarEventId);
+              await updateDoc(taskDocRef, { googleCalendarEventId: null });
+            }
+          }
+        }
+      }
+
+      await deleteDoc(logDocRef);
+    } catch (err) {
+      console.error("Firestore deleteAgentLog failed:", err);
+    }
   }
 
   public async addAgentLog(log: Omit<AgentLog, 'id' | 'timestamp'>): Promise<AgentLog> {
+    const uid = this.currentUser?.uid || 'guest';
+    const logId = 'log-' + Math.random().toString(36).substr(2, 9);
     const newLog: AgentLog = {
       ...log,
-      id: 'log-' + Math.random().toString(36).substr(2, 9),
+      id: logId,
+      uid,
       timestamp: new Date().toISOString(),
     };
-    const logs = await this.getAgentLogs();
-    // Prepend to show most recent logs first
-    logs.unshift(newLog);
-    // Keep a max log count of 30 items for clean client storage
-    const trimmedLogs = logs.slice(0, 30);
-    localStorage.setItem('clutch_logs', JSON.stringify(trimmedLogs));
+
+    if (uid !== 'guest') {
+      try {
+        await setDoc(doc(db, 'users', uid, 'logs', logId), newLog);
+      } catch (err) {
+        console.error("Firestore addAgentLog failed:", err);
+      }
+    }
     return newLog;
   }
 
-  // FCM Simulator and Google Calendar Simulator methods
+  public async updateAgentLogTelemetry(logId: string, feedback: 'USER_ACCEPTED' | 'USER_IGNORED' | 'USER_DELETED'): Promise<AgentLog> {
+    const uid = this.currentUser?.uid;
+    if (!uid) throw new Error('Unauthenticated operation');
+
+    try {
+      const logDocRef = doc(db, 'users', uid, 'logs', logId);
+      await updateDoc(logDocRef, { telemetryFeedback: feedback });
+      const snap = await getDoc(logDocRef);
+      return snap.data() as AgentLog;
+    } catch (err) {
+      console.error("Firestore updateAgentLogTelemetry failed:", err);
+      throw err;
+    }
+  }
+
+  // ==========================================
+  // APP NOTIFICATIONS PERSISTENCE (USER-ISOLATED)
+  // ==========================================
+
+  public async getNotifications(): Promise<AppNotification[]> {
+    const uid = this.currentUser?.uid;
+    if (!uid) return [];
+
+    try {
+      const notifsRef = collection(db, 'users', uid, 'notifications');
+      const snapshot = await getDocs(notifsRef);
+      const notifications: AppNotification[] = [];
+      snapshot.forEach(docSnap => {
+        notifications.push(docSnap.data() as AppNotification);
+      });
+      return notifications.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    } catch (err) {
+      console.error("Firestore getNotifications failed:", err);
+      return [];
+    }
+  }
+
+  public async addNotification(notif: Omit<AppNotification, 'id' | 'timestamp' | 'isRead'>): Promise<AppNotification> {
+    const uid = this.currentUser?.uid || 'guest';
+    const notifId = 'notif-' + Math.random().toString(36).substr(2, 9);
+    const newNotif: AppNotification = {
+      ...notif,
+      id: notifId,
+      timestamp: new Date().toISOString(),
+      isRead: false
+    };
+
+    if (uid !== 'guest') {
+      try {
+        await setDoc(doc(db, 'users', uid, 'notifications', notifId), newNotif);
+      } catch (err) {
+        console.error("Firestore addNotification failed:", err);
+      }
+    }
+
+    window.dispatchEvent(new CustomEvent('clutch-notifications-updated'));
+    return newNotif;
+  }
+
+  public async markNotificationAsRead(id: string): Promise<void> {
+    const uid = this.currentUser?.uid;
+    if (!uid) return;
+
+    try {
+      await updateDoc(doc(db, 'users', uid, 'notifications', id), { isRead: true });
+      window.dispatchEvent(new CustomEvent('clutch-notifications-updated'));
+    } catch (err) {
+      console.error("Firestore markNotificationAsRead failed:", err);
+    }
+  }
+
+  public async clearAllNotifications(): Promise<void> {
+    const uid = this.currentUser?.uid;
+    if (!uid) return;
+
+    try {
+      const notifsRef = collection(db, 'users', uid, 'notifications');
+      const snapshot = await getDocs(notifsRef);
+      const batch = writeBatch(db);
+      snapshot.forEach(docSnap => {
+        batch.delete(docSnap.ref);
+      });
+      await batch.commit();
+      window.dispatchEvent(new CustomEvent('clutch-notifications-updated'));
+    } catch (err) {
+      console.error("Firestore clearAllNotifications failed:", err);
+    }
+  }
+
+  // ==========================================
+  // REAL GOOGLE CALENDAR API INTEGRATIONS
+  // ==========================================
+
+  public isCalendarConnected(): boolean {
+    return this.googleAccessToken !== null;
+  }
+
+  // Event Creation
+  private async createCalendarEvent(task: Task, scheduledAt: string, durationMinutes: number): Promise<string | null> {
+    if (!this.googleAccessToken) return null;
+
+    try {
+      const response = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${this.googleAccessToken}`,
+          'Content-Type': 'application/json'
+         },
+         body: JSON.stringify({
+           summary: `Focus Block: ${task.title}`,
+           description: `Autonomous sprint scheduled by Clutch Decision Core.\n\nTask Category: ${task.category.toUpperCase()}\nEstimated Work: ${task.estimatedDuration} mins\nRisk Index: ${task.riskScore}%\nTarget Deadline: ${new Date(task.deadline).toLocaleString()}`,
+           start: {
+             dateTime: new Date(scheduledAt).toISOString(),
+           },
+           end: {
+             dateTime: new Date(new Date(scheduledAt).getTime() + durationMinutes * 60 * 1000).toISOString(),
+           },
+           reminders: {
+             useDefault: true
+           }
+         })
+      });
+
+      if (!response.ok) {
+        const errorDetails = await response.json().catch(() => ({}));
+        throw new Error(`Calendar Create Failed: ${response.status} - ${JSON.stringify(errorDetails)}`);
+      }
+
+      const eventData = await response.json();
+      return eventData.id;
+    } catch (err) {
+      console.error("Failed to sync new event to Google Calendar:", err);
+      this.handleCalendarError(err);
+      return null;
+    }
+  }
+
+  // Event Updates
+  private async updateCalendarEvent(eventId: string, task: Task, scheduledAt: string, durationMinutes: number): Promise<boolean> {
+    if (!this.googleAccessToken) return false;
+
+    try {
+      const response = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventId}`, {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${this.googleAccessToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          summary: `Focus Block: ${task.title}`,
+          start: {
+            dateTime: new Date(scheduledAt).toISOString(),
+          },
+          end: {
+            dateTime: new Date(new Date(scheduledAt).getTime() + durationMinutes * 60 * 1000).toISOString(),
+          }
+        })
+      });
+
+      if (!response.ok) {
+        if (response.status === 404) {
+          console.warn("Event not found on Google Calendar; presumably deleted manually. Will trigger re-creation.");
+          return false;
+        }
+        const errorDetails = await response.json().catch(() => ({}));
+        throw new Error(`Calendar Patch Failed: ${response.status} - ${JSON.stringify(errorDetails)}`);
+      }
+
+      return true;
+    } catch (err) {
+      console.error("Failed to sync schedule update to Google Calendar:", err);
+      this.handleCalendarError(err);
+      return false;
+    }
+  }
+
+  // Event Deletions
+  private async deleteCalendarEvent(eventId: string): Promise<boolean> {
+    if (!this.googleAccessToken) return false;
+
+    try {
+      const response = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${this.googleAccessToken}`
+        }
+      });
+
+      if (!response.ok) {
+        if (response.status === 404) {
+          console.warn("Event already removed from Google Calendar.");
+          return true;
+        }
+        const errorDetails = await response.json().catch(() => ({}));
+        throw new Error(`Calendar Delete Failed: ${response.status} - ${JSON.stringify(errorDetails)}`);
+      }
+
+      return true;
+    } catch (err) {
+      console.error("Failed to delete event from Google Calendar:", err);
+      this.handleCalendarError(err);
+      return false;
+    }
+  }
+
+  // Robust Error Handling for OAuth/503 Propagation
+  private handleCalendarError(error: any) {
+    const errorStr = String(error?.message || error);
+    const isUnauthorized = errorStr.includes('401') || errorStr.includes('invalid_credential') || errorStr.includes('expired') || errorStr.includes('Unauthorized');
+    const is503 = errorStr.includes('503') || errorStr.includes('Unavailable');
+
+    if (isUnauthorized) {
+      this.setOutageState('oauth_expired', true);
+      this.addNotification({
+        title: '🔑 Google Calendar Sync Paused',
+        body: 'Google Calendar OAuth session has expired or been revoked. Re-authenticate to resume live scheduling.',
+        type: 'warning'
+      });
+      this.addAgentLog({
+        taskId: null,
+        taskTitle: null,
+        actionType: 'do_nothing',
+        actionTaken: 'Calendar Sync Paused',
+        reason: 'OAuth session token expired. Falling back to robust local offline scheduler.',
+        isAgentInitiated: true,
+        agentType: 'CALENDAR_SCHEDULER',
+        isFailure: true,
+        retryCount: 1,
+        maxRetries: 3,
+        status: 'failed_retrying',
+        errorMessage: 'Token Expired: Identity pool could not verify access rights.'
+      });
+    } else if (is503) {
+      this.setOutageState('calendar_503', true);
+      this.addNotification({
+        title: '🗓️ Google Calendar Unreachable (503)',
+        body: 'Clutch detected that Google Calendar is temporarily down. Backoff recovery loop is holding your booking.',
+        type: 'warning'
+      });
+    }
+  }
+
+  // ==========================================
+  // CALENDAR SCHEDULER & EVENT SYNC ADAPTER
+  // ==========================================
+
   public async simulateGoogleCalendarSchedule(taskId: string, durationMinutes: number, customScheduledAt?: string): Promise<{ success: boolean; eventTime: string }> {
-    const tasks = await this.getTasks();
-    const task = tasks.find(t => t.id === taskId);
-    if (!task) throw new Error('Task not found');
+    const uid = this.currentUser?.uid;
+    if (!uid) throw new Error('Unauthenticated operation');
+
+    const taskDocRef = doc(db, 'users', uid, 'tasks', taskId);
+    const taskSnap = await getDoc(taskDocRef);
+    if (!taskSnap.exists()) throw new Error('Task target does not exist');
+    const task = taskSnap.data() as Task;
 
     let eventTime: Date;
     if (customScheduledAt) {
@@ -513,8 +1137,37 @@ class PersistenceService {
     }
 
     const formattedTime = eventTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    
-    // Check if there is already an existing non-failed booking log for this task
+
+    let calendarEventId = task.googleCalendarEventId || null;
+    let isRealGoogleSync = false;
+
+    // Check if Google Calendar OAuth and permission is active and healthy
+    if (this.googleAccessToken && !this.isOutageActive('calendar_503') && !this.isOutageActive('oauth_expired')) {
+      if (calendarEventId) {
+        console.log(`[Google Sync] Modifying existing Google Event: ${calendarEventId}`);
+        const updateOk = await this.updateCalendarEvent(calendarEventId, task, eventTime.toISOString(), durationMinutes);
+        if (updateOk) {
+          isRealGoogleSync = true;
+        } else {
+          // If event was manually deleted from Google, re-create it
+          console.log("[Google Sync] Event was missing on remote calendar. Creating fresh block...");
+          calendarEventId = await this.createCalendarEvent(task, eventTime.toISOString(), durationMinutes);
+          if (calendarEventId) {
+            await updateDoc(taskDocRef, { googleCalendarEventId: calendarEventId });
+            isRealGoogleSync = true;
+          }
+        }
+      } else {
+        console.log("[Google Sync] Creating brand new Google Event block");
+        calendarEventId = await this.createCalendarEvent(task, eventTime.toISOString(), durationMinutes);
+        if (calendarEventId) {
+          await updateDoc(taskDocRef, { googleCalendarEventId: calendarEventId });
+          isRealGoogleSync = true;
+        }
+      }
+    }
+
+    // Identify if scheduler is executing in real sync vs local fallback
     const logs = await this.getAgentLogs();
     const existingLogIndex = logs.findIndex(l => 
       l.taskId === taskId && 
@@ -524,63 +1177,64 @@ class PersistenceService {
     );
 
     if (existingLogIndex !== -1) {
-      // Update the existing booking in-place rather than creating a duplicate log!
+      // Reschedule in-place
       const existingLog = logs[existingLogIndex];
       existingLog.scheduledAt = eventTime.toISOString();
-      existingLog.reason = `Rescheduled: Booked 45m block at ${formattedTime} in Google Calendar.`;
+      existingLog.reason = isRealGoogleSync 
+        ? `Synced: Booked 45m block at ${formattedTime} in Google Calendar.` 
+        : `Rescheduled: Booked 45m block at ${formattedTime} in Google Calendar (Local Fallback).`;
       
       if (existingLog.structuredReasoning) {
-        existingLog.structuredReasoning.justificationText = `Autonomous Calendar Scheduling Agent updated focus session starting at ${formattedTime} to mitigate completion risk.`;
+        existingLog.structuredReasoning.justificationText = isRealGoogleSync
+          ? `Autonomous Calendar Agent synchronized focus session at ${formattedTime} directly with Google Calendar to mitigate risk.`
+          : `Autonomous Calendar Agent updated focus session at ${formattedTime} using local scheduling.`;
         if (existingLog.structuredReasoning.metrics) {
-          existingLog.structuredReasoning.metrics.calendarAvailability = 'Free block updated';
+          existingLog.structuredReasoning.metrics.calendarAvailability = isRealGoogleSync ? 'Synced Live' : 'Local Gaps';
         }
       }
       
-      localStorage.setItem('clutch_logs', JSON.stringify(logs));
+      await setDoc(doc(db, 'users', uid, 'logs', existingLog.id), existingLog);
 
-      // Dispatch Google Calendar rescheduled notification
       await this.addNotification({
-        title: '🗓️ Google Calendar Focus Session Rescheduled',
+        title: isRealGoogleSync ? '🗓️ Google Calendar Focus Session Updated' : '🗓️ Focus Session Rescheduled (Local)',
         body: `RESCHEDULED: Blocked a 45-minute deep-work session starting at ${formattedTime} for "${task.title}".`,
         type: 'info'
       });
-
-      return {
-        success: true,
-        eventTime: eventTime.toISOString()
-      };
-    }
-
-    // Add Agent Log
-    await this.addAgentLog({
-      taskId,
-      taskTitle: task.title,
-      actionType: 'reschedule',
-      actionTaken: `Scheduled Workspace Focus slot`,
-      reason: `Booked 45m block at ${formattedTime} in Google Calendar. Free interval found.`,
-      isAgentInitiated: true,
-      agentType: 'CALENDAR_SCHEDULER',
-      scheduledAt: eventTime.toISOString(),
-      structuredReasoning: {
-        metrics: {
-          observedDeadline: 'N/A',
-          observedProgress: `${task.progress || 0}%`,
-          estimatedWorkRemaining: 'N/A',
-          calendarAvailability: '1 free gap discovered'
+    } else {
+      // Create new booking log
+      await this.addAgentLog({
+        taskId,
+        taskTitle: task.title,
+        actionType: 'reschedule',
+        actionTaken: isRealGoogleSync ? 'Auto-Scheduled Focus Block' : 'Auto-Scheduled Focus Block (Local)',
+        reason: isRealGoogleSync 
+          ? `Synced: Booked 45m block at ${formattedTime} in Google Calendar.` 
+          : `Booked 45m block at ${formattedTime} in Google Calendar (Local Fallback).`,
+        isAgentInitiated: true,
+        agentType: 'CALENDAR_SCHEDULER',
+        scheduledAt: eventTime.toISOString(),
+        structuredReasoning: {
+          metrics: {
+            observedDeadline: 'N/A',
+            observedProgress: `${task.progress || 0}%`,
+            estimatedWorkRemaining: 'N/A',
+            calendarAvailability: isRealGoogleSync ? 'Live scanned & synced' : '1 local gap discovered'
+          },
+          justificationText: isRealGoogleSync
+            ? `Autonomous Calendar Scheduling Agent successfully secured a 45-minute focus session starting at ${formattedTime} directly with your Google Calendar.`
+            : `Autonomous Calendar Scheduling Agent successfully scanned calendar free/busy slots locally and secured a 45-minute focus session.`,
+          decisionConfidence: 95
         },
-        justificationText: `Autonomous Calendar Scheduling Agent successfully scanned calendar free/busy slots and secured a 45-minute focus session starting at ${formattedTime} to mitigate completion risk.`,
-        decisionConfidence: 95
-      },
-      decisionExecuted: 'SCHEDULED_FOCUS_BLOCK',
-      userApprovalApplied: 'ASSIST'
-    });
+        decisionExecuted: 'SCHEDULED_FOCUS_BLOCK',
+        userApprovalApplied: 'ASSIST'
+      });
 
-    // Dispatch Google Calendar booked notification (Notification Agent)
-    await this.addNotification({
-      title: '🗓️ Google Calendar Focus Session Booked',
-      body: `AUTONOMOUS SPRINT: Blocked a 45-minute deep-work session starting at ${formattedTime} for "${task.title}".`,
-      type: 'info'
-    });
+      await this.addNotification({
+        title: isRealGoogleSync ? '🗓️ Google Calendar Focus Session Booked' : '🗓️ Focus Session Booked (Local)',
+        body: `AUTONOMOUS SPRINT: Blocked a 45-minute deep-work session starting at ${formattedTime} for "${task.title}".`,
+        type: 'info'
+      });
+    }
 
     return {
       success: true,
@@ -588,50 +1242,9 @@ class PersistenceService {
     };
   }
 
-  public async getNotifications(): Promise<AppNotification[]> {
-    const data = localStorage.getItem('clutch_notifications');
-    if (!data) return [];
-    try {
-      return JSON.parse(data);
-    } catch {
-      return [];
-    }
-  }
-
-  public async addNotification(notif: Omit<AppNotification, 'id' | 'timestamp' | 'isRead'>): Promise<AppNotification> {
-    const newNotif: AppNotification = {
-      ...notif,
-      id: 'notif-' + Math.random().toString(36).substr(2, 9),
-      timestamp: new Date().toISOString(),
-      isRead: false
-    };
-    const notifications = await this.getNotifications();
-    notifications.unshift(newNotif);
-    localStorage.setItem('clutch_notifications', JSON.stringify(notifications.slice(0, 30)));
-    window.dispatchEvent(new CustomEvent('clutch-notifications-updated'));
-    return newNotif;
-  }
-
-  public async markNotificationAsRead(id: string): Promise<void> {
-    const notifications = await this.getNotifications();
-    const updated = notifications.map(n => n.id === id ? { ...n, isRead: true } : n);
-    localStorage.setItem('clutch_notifications', JSON.stringify(updated));
-    window.dispatchEvent(new CustomEvent('clutch-notifications-updated'));
-  }
-
-  public async clearAllNotifications(): Promise<void> {
-    localStorage.removeItem('clutch_notifications');
-    window.dispatchEvent(new CustomEvent('clutch-notifications-updated'));
-  }
-
-  public async simulateFCMNotification(taskTitle: string, riskScore: number, remainingText: string): Promise<AppNotification> {
-    const notif = await this.addNotification({
-      title: '⚠️ Clutch Emergency Dispatch',
-      body: `"${taskTitle}" is ${riskScore}% likely to be missed. ${remainingText} remaining. Tap to activate survival mode.`,
-      type: 'crisis'
-    });
-    return notif;
-  }
+  // ==========================================
+  // OUTAGES & SELF-HEALING SYSTEMS
+  // ==========================================
 
   public isOutageActive(type: 'calendar_503' | 'oauth_expired' | 'gemini_timeout'): boolean {
     return localStorage.getItem(`clutch_outage_${type}`) === 'true';
@@ -660,11 +1273,12 @@ class PersistenceService {
     if (activeFailureLogs.length === 0) return 0;
 
     let recoveredCount = 0;
-    const updatedLogs = [...logs];
+    const uid = this.currentUser?.uid;
+    if (!uid) return 0;
+
     const newLogsToAdd: AgentLog[] = [];
 
-    for (let i = 0; i < updatedLogs.length; i++) {
-      const log = updatedLogs[i];
+    for (const log of logs) {
       if (log.isFailure && log.status === 'failed_retrying') {
         let outageType: 'calendar_503' | 'oauth_expired' | 'gemini_timeout' | null = null;
         if (log.agentType === 'CALENDAR_SCHEDULER') outageType = 'calendar_503';
@@ -675,7 +1289,7 @@ class PersistenceService {
           const isOutageStillActive = this.isOutageActive(outageType);
           if (!isOutageStillActive) {
             // Outage was cleared! Recover this entry.
-            updatedLogs[i] = {
+            const recoveredLog: AgentLog = {
               ...log,
               isFailure: false,
               status: 'success',
@@ -683,17 +1297,19 @@ class PersistenceService {
               reason: `The autonomous Recovery Agent detected connection restoration. Succeeded after retry ${log.retryCount || 1}.`,
               timestamp: new Date().toISOString()
             };
+            await setDoc(doc(db, 'users', uid, 'logs', log.id), recoveredLog);
             recoveredCount++;
 
-            // Create a dedicated Recovery Agent Success Log in memory
+            // Create a dedicated Recovery Agent Success Log
+            const successLogId = 'log-' + Math.random().toString(36).substr(2, 9);
             const successLog: AgentLog = {
-              id: 'log-' + Math.random().toString(36).substr(2, 9),
-              uid: 'demo-user-123',
+              id: successLogId,
+              uid,
               taskId: log.taskId,
               taskTitle: log.taskTitle,
               actionType: log.actionType || 'do_nothing',
               actionTaken: 'Connection Restored & State Re-synchronized',
-              reason: `Autonomous Recovery Agent successfully drained the retry queue and re-established connection for ${log.agentType}.`,
+              reason: `Autonomous Recovery Agent successfully drained retry queue & restored connection.`,
               timestamp: new Date().toISOString(),
               isAgentInitiated: true,
               agentType: 'RECOVERY_AGENT',
@@ -705,97 +1321,50 @@ class PersistenceService {
                   estimatedWorkRemaining: 'Restored',
                   calendarAvailability: 'Restored'
                 },
-                justificationText: `The outage for ${log.agentType} was successfully resolved in the Advanced Diagnostics Console. The Recovery Agent cleared all pending transactions and restored green status indicators.`,
+                justificationText: `The outage for ${log.agentType} was successfully resolved. The Recovery Agent cleared all pending transactions.`,
                 decisionConfidence: 99
               }
             };
-            newLogsToAdd.push(successLog);
+            await setDoc(doc(db, 'users', uid, 'logs', successLogId), successLog);
 
-            // Dispatch notification for self-heal
             await this.addNotification({
               title: '🟢 Clutch Recovery Agent Self-Healed',
-              body: `SUCCESS: Connection issue with ${log.agentType === 'CALENDAR_SCHEDULER' ? 'Google Calendar API' : log.agentType === 'TASK_MONITOR' ? 'Google OAuth Services' : 'Gemini 2.0 reasoning engine'} has been fully self-healed.`,
+              body: `SUCCESS: Connection issue with ${log.agentType === 'CALENDAR_SCHEDULER' ? 'Google Calendar API' : log.agentType === 'TASK_MONITOR' ? 'Google OAuth Services' : 'Gemini reasoning engine'} has been fully self-healed.`,
               type: 'info'
             });
           } else {
-            // Outage is STILL active. Increment retryCount!
+            // Outage remains active. Increment retryCount!
             const newRetryCount = (log.retryCount || 1) + 1;
             const maxRetries = log.maxRetries || 3;
             if (newRetryCount > maxRetries) {
-              updatedLogs[i] = {
+              const terminalLog: AgentLog = {
                 ...log,
                 retryCount: newRetryCount,
                 status: 'failed_terminal',
                 errorMessage: `Recovery Agent: Retry threshold exceeded. Terminal failure recorded. Contacting operator.`,
                 timestamp: new Date().toISOString()
               };
+              await setDoc(doc(db, 'users', uid, 'logs', log.id), terminalLog);
 
-              // Log Terminal outage in memory
-              const terminalLog: AgentLog = {
-                id: 'log-' + Math.random().toString(36).substr(2, 9),
-                uid: 'demo-user-123',
-                taskId: log.taskId,
-                taskTitle: log.taskTitle,
-                actionType: 'do_nothing',
-                actionTaken: 'Terminal Connection Outage',
-                reason: `Autonomous Recovery Agent was unable to self-heal ${log.agentType} after ${maxRetries} backoff retries. State marked as TERMINAL_OUTAGE.`,
-                timestamp: new Date().toISOString(),
-                isAgentInitiated: true,
-                agentType: 'RECOVERY_AGENT',
-                isFailure: true,
-                status: 'failed_terminal',
-                errorMessage: `CRITICAL: Recovery attempt limit of ${maxRetries} exceeded. Connection remains offline.`,
-                structuredReasoning: {
-                  metrics: {
-                    observedDeadline: 'N/A',
-                    observedProgress: 'N/A',
-                    estimatedWorkRemaining: 'N/A',
-                    calendarAvailability: 'Unreachable'
-                  },
-                  justificationText: 'All automatic retry intervals failed. Immediate manual re-auth required.',
-                  decisionConfidence: 10
-                }
-              };
-              newLogsToAdd.push(terminalLog);
-
+              // Create terminal outage notification
               await this.addNotification({
                 title: '🚨 CRITICAL: Self-Heal Retry Limit Exceeded',
-                body: `Terminal failure: Recovery Agent was unable to resolve connection for ${log.agentType}. Please check the advanced diagnostics console.`,
+                body: `Terminal failure: Recovery Agent was unable to resolve connection for ${log.agentType}. Manual operator login required.`,
                 type: 'crisis'
               });
             } else {
-              updatedLogs[i] = {
-                ...log,
+              await updateDoc(doc(db, 'users', uid, 'logs', log.id), {
                 retryCount: newRetryCount,
                 timestamp: new Date().toISOString()
-              };
+              });
             }
           }
         }
       }
     }
 
-    // Save combined new success/terminal logs with updated failure states
-    const finalLogs = [...newLogsToAdd, ...updatedLogs];
-    localStorage.setItem('clutch_logs', JSON.stringify(finalLogs.slice(0, 30)));
     return recoveredCount;
   }
-
-  public async updateAgentLogTelemetry(logId: string, feedback: 'USER_ACCEPTED' | 'USER_IGNORED' | 'USER_DELETED'): Promise<AgentLog> {
-    const logs = await this.getAgentLogs();
-    const logIndex = logs.findIndex(l => l.id === logId);
-    if (logIndex === -1) throw new Error('Agent log not found');
-    
-    logs[logIndex] = {
-      ...logs[logIndex],
-      telemetryFeedback: feedback
-    };
-    localStorage.setItem('clutch_logs', JSON.stringify(logs));
-    return logs[logIndex];
-  }
-
-  private isEvaluating = false;
-  private lastTasksSnapshot = '';
 
   public async runTaskMonitorCycle(forceTaskId?: string, bypassThrottle: boolean = false): Promise<{ evaluated: number; logsCreated: number }> {
     if (this.isEvaluating) {
@@ -804,7 +1373,6 @@ class PersistenceService {
     this.isEvaluating = true;
     window.dispatchEvent(new CustomEvent('clutch-agent-status', { detail: 'evaluating' }));
 
-    // Run Recovery Agent Check first to self-heal any resolved connection failures
     try {
       await this.runRecoveryAgentCycle();
     } catch (e) {
@@ -814,27 +1382,6 @@ class PersistenceService {
     try {
       const tasks = await this.getTasks();
       const activeTasks = tasks.filter(t => t.status === 'active');
-
-      const currentSnapshotObj = activeTasks.map(t => ({
-        id: t.id,
-        title: t.title,
-        progress: t.progress,
-        completedSteps: t.completedSteps,
-        totalSteps: t.totalSteps,
-        subtasks: (t.subtasks || []).map(st => ({ id: st.id, completed: st.completed })),
-        deadline: t.deadline
-      }));
-      const currentSnapshot = JSON.stringify(currentSnapshotObj);
-
-      if (!forceTaskId && !bypassThrottle) {
-        if (currentSnapshot === this.lastTasksSnapshot) {
-          // If no states have changed and it is a background idle cycle, skip the evaluation to avoid overhead & console spam
-          this.isEvaluating = false;
-          window.dispatchEvent(new CustomEvent('clutch-agent-status', { detail: 'monitoring' }));
-          return { evaluated: 0, logsCreated: 0 };
-        }
-      }
-      this.lastTasksSnapshot = currentSnapshot;
 
       let evaluatedCount = 0;
       let logsCount = 0;
@@ -846,14 +1393,13 @@ class PersistenceService {
         
         if (!forceTaskId && !bypassThrottle) {
           const lastEval = task.lastRiskEvaluation ? new Date(task.lastRiskEvaluation).getTime() : 0;
-          if (Date.now() - lastEval < 30000) {
+          if (Date.now() - lastEval < 15000) {
             continue;
           }
         }
 
-        // Outage propagation check: If Task Monitor oauth is expired, skip actual evaluations
         if (this.isOutageActive('oauth_expired')) {
-          console.warn('[Task Monitor] OAuth session is expired. Postponing evaluation.');
+          console.warn('[Task Monitor] OAuth session remains expired. Skipping evaluation.');
           continue;
         }
 
@@ -862,16 +1408,10 @@ class PersistenceService {
           const result = await assessTaskRiskWithAI(task);
 
           // Update task's risk score and evaluation time
-          const tasksList = await this.getTasks();
-          const tIdx = tasksList.findIndex(t => t.id === task.id);
-          if (tIdx !== -1) {
-            tasksList[tIdx] = {
-              ...tasksList[tIdx],
-              riskScore: result.riskScore,
-              lastRiskEvaluation: new Date().toISOString()
-            };
-            this.saveTasksInternal(tasksList);
-          }
+          await this.updateTask(task.id, {
+            riskScore: result.riskScore,
+            lastRiskEvaluation: new Date().toISOString()
+          });
 
           // Add Risk Assessor AgentLog
           await this.addAgentLog({
@@ -892,17 +1432,16 @@ class PersistenceService {
           evaluatedCount++;
           logsCount++;
 
-          // Dispatch notifications based on risk levels (Notification Agent)
           if (result.riskScore >= 80) {
             await this.addNotification({
               title: '🚨 Clutch Emergency Dispatch',
-              body: `CRITICAL RISK: "${task.title}" is ${result.riskScore}% likely to be missed. Action required immediately!`,
+              body: `CRITICAL RISK: "${task.title}" is ${result.riskScore}% likely to be missed. Immediate intervention recommended.`,
               type: 'crisis'
             });
           } else if (result.riskScore >= 40) {
             await this.addNotification({
               title: '⚠️ Clutch High Risk Warning',
-              body: `WARNING: "${task.title}" risk has escalated to ${result.riskScore}%. Micro-steps are falling behind.`,
+              body: `WARNING: "${task.title}" risk ratio is elevated to ${result.riskScore}%.`,
               type: 'warning'
             });
           }
@@ -910,8 +1449,6 @@ class PersistenceService {
           // Orchestrate Calendar Scheduling Agent autonomously if recommended
           if (result.actionType === 'reschedule') {
             const currentLogs = await this.getAgentLogs();
-            
-            // 1. Duplicate Booking Prevention Check (Idempotent)
             const isAlreadyScheduled = currentLogs.some(l => 
               l.taskId === task.id &&
               l.agentType === 'CALENDAR_SCHEDULER' &&
@@ -919,93 +1456,15 @@ class PersistenceService {
               !l.isFailure
             );
 
-            if (isAlreadyScheduled) {
-              console.log(`[Calendar Agent] Task "${task.title}" is already scheduled in Google Calendar. Skipping to prevent duplicates.`);
-            } else {
-              // Trigger Calendar Scheduling status state
+            if (!isAlreadyScheduled) {
               window.dispatchEvent(new CustomEvent('clutch-agent-status', { detail: 'scheduling' }));
-              await new Promise(resolve => setTimeout(resolve, 800)); // Brief realistic thinking latency
+              await new Promise(resolve => setTimeout(resolve, 800)); // Latency feeler
 
-              // 2. Outage Propagation Check (Simulated 503)
-              const hasCalendarOutage = this.isOutageActive('calendar_503') || currentLogs.some(l => 
-                l.agentType === 'CALENDAR_SCHEDULER' &&
-                l.isFailure === true &&
-                l.status === 'failed_retrying'
-              );
+              await this.simulateGoogleCalendarSchedule(task.id, 45);
+              logsCount++;
 
-              if (hasCalendarOutage) {
-                // Book postponed (failed retrying state)
-                await this.addAgentLog({
-                  taskId: task.id,
-                  taskTitle: task.title,
-                  actionType: 'reschedule',
-                  actionTaken: 'Calendar Booking Postponed',
-                  reason: 'Google Calendar API connection lost (503 Service Unavailable). Retry scheduled in background.',
-                  isAgentInitiated: true,
-                  agentType: 'CALENDAR_SCHEDULER',
-                  telemetryFeedback: 'PENDING',
-                  isFailure: true,
-                  retryCount: 1,
-                  maxRetries: 3,
-                  status: 'failed_retrying',
-                  errorMessage: 'HTTP 503: Service Unavailable',
-                  structuredReasoning: {
-                    metrics: {
-                      observedDeadline: result.structuredReasoning?.metrics?.observedDeadline || 'N/A',
-                      observedProgress: result.structuredReasoning?.metrics?.observedProgress || 'N/A',
-                      estimatedWorkRemaining: result.structuredReasoning?.metrics?.estimatedWorkRemaining || 'N/A',
-                      calendarAvailability: 'Locked or Unreachable'
-                    },
-                    justificationText: 'The autonomous Calendar Scheduling Agent detected that the Google Calendar API is offline. Booking request has been buffered into the Recovery Agent queue.',
-                    decisionConfidence: 30
-                  },
-                  evaluationSource: result.evaluationSource
-                });
-                logsCount++;
-              } else {
-                // Book Focus Block Successfully
-                const eventTime = new Date(Date.now() + 60 * 60 * 1000); // 1 hour from now
-                eventTime.setMinutes(0, 0, 0);
-                const formattedTime = eventTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
-                await this.addAgentLog({
-                  taskId: task.id,
-                  taskTitle: task.title,
-                  actionType: 'reschedule',
-                  actionTaken: 'Auto-Scheduled Focus Block',
-                  reason: `Booked 45m block at ${formattedTime} in Google Calendar. Free interval found.`,
-                  isAgentInitiated: true,
-                  agentType: 'CALENDAR_SCHEDULER',
-                  telemetryFeedback: 'PENDING',
-                  scheduledAt: eventTime.toISOString(),
-                  structuredReasoning: {
-                    metrics: {
-                      observedDeadline: result.structuredReasoning?.metrics?.observedDeadline || 'N/A',
-                      observedProgress: result.structuredReasoning?.metrics?.observedProgress || 'N/A',
-                      estimatedWorkRemaining: result.structuredReasoning?.metrics?.estimatedWorkRemaining || 'N/A',
-                      calendarAvailability: '1 free gap discovered'
-                    },
-                    justificationText: `Autonomous Calendar Scheduling Agent successfully scanned calendar free/busy slots and secured a 45-minute focus session starting at ${formattedTime} to mitigate completion risk.`,
-                    decisionConfidence: 95
-                  },
-                  decisionExecuted: 'SCHEDULED_FOCUS_BLOCK',
-                  userApprovalApplied: 'AUTONOMOUS',
-                  evaluationSource: result.evaluationSource
-                });
-
-                logsCount++;
-
-                // Dispatch Google Calendar booked notification (Notification Agent)
-                await this.addNotification({
-                  title: '🗓️ Google Calendar Focus Session Booked',
-                  body: `AUTONOMOUS SPRINT: Blocked a 45-minute deep-work session starting at ${formattedTime} for "${task.title}".`,
-                  type: 'info'
-                });
-
-                // Transition briefly to dispatch to play success animation if applicable
-                window.dispatchEvent(new CustomEvent('clutch-agent-status', { detail: 'dispatch' }));
-                await new Promise(resolve => setTimeout(resolve, 1500));
-              }
+              window.dispatchEvent(new CustomEvent('clutch-agent-status', { detail: 'dispatch' }));
+              await new Promise(resolve => setTimeout(resolve, 1500));
             }
           }
         } catch (err) {
@@ -1020,8 +1479,9 @@ class PersistenceService {
     }
   }
 
+  private isEvaluating = false;
+
   public async simulateAgentFailure(type: 'calendar_503' | 'oauth_expired' | 'gemini_timeout'): Promise<AgentLog> {
-    // Set outage flag
     this.setOutageState(type, true);
 
     let actionTaken = 'API Connection Error';
@@ -1041,20 +1501,17 @@ class PersistenceService {
       agentType = 'TASK_MONITOR';
     } else if (type === 'gemini_timeout') {
       actionTaken = 'Risk Analysis Postponed';
-      reason = 'Gemini 2.0 reasoning loop timed out. Falling back to robust offline deterministic safe formulas.';
-      errorMessage = 'Gateway Timeout: connection to models/gemini-2.0-flash closed';
+      reason = 'Gemini reasoning loop timed out. Falling back to robust offline deterministic formulas.';
+      errorMessage = 'Gateway Timeout: connection to models/gemini-3.5-flash closed';
       agentType = 'RISK_ASSESSOR';
     }
 
-    const failureLog: AgentLog = {
-      id: 'log-err-' + Math.random().toString(36).substr(2, 9),
-      uid: 'demo-user-123',
+    const failureLog = await this.addAgentLog({
       taskId: null,
       taskTitle: null,
       actionType: 'do_nothing',
       actionTaken,
       reason,
-      timestamp: new Date().toISOString(),
       isAgentInitiated: true,
       agentType,
       telemetryFeedback: 'PENDING',
@@ -1070,19 +1527,14 @@ class PersistenceService {
           estimatedWorkRemaining: 'N/A',
           calendarAvailability: 'Locked or Unreachable'
         },
-        justificationText: `System encountered a background error during scheduled agent cycle. Task pushed to recovery loop.`,
+        justificationText: `System encountered a background connection outage during scheduled agent cycle. Task pushed to background recovery loop.`,
         decisionConfidence: 30
       }
-    };
+    });
 
-    const logs = await this.getAgentLogs();
-    logs.unshift(failureLog);
-    localStorage.setItem('clutch_logs', JSON.stringify(logs.slice(0, 30)));
-
-    // Send outage warning notification
     await this.addNotification({
-      title: `🔴 Connection Outage: ${agentType}`,
-      body: `CRITICAL: ${actionTaken} occurred. Autonomous Recovery Agent is holding and retry-queueing.`,
+      title: `🔴 Outage Detected: ${agentType}`,
+      body: `CRITICAL: ${actionTaken}. The autonomous Recovery Agent is handling retries.`,
       type: 'crisis'
     });
 

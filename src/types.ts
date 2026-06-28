@@ -39,6 +39,7 @@ export interface Task {
   lastAIInteraction: string | null; // ISO-8601
   subtasks: SubTask[];
   inProgress?: boolean;
+  googleCalendarEventId?: string | null;
 }
 
 export interface UserProfile {

@@ -1045,7 +1045,7 @@ export default function Dashboard({ user, activeTab, setActiveTab }: DashboardPr
 
                     <div className="pt-4 border-t border-[#1C2F46]/50 flex justify-between items-center shrink-0">
                       <span className="text-[10px] font-mono text-slate-500">
-                        Registered {new Date(selectedTask.createdAt).toLocaleDateString()}
+                        Registered {formatHumanFriendlyDeadline(selectedTask.createdAt)}
                       </span>
 
                       <button
