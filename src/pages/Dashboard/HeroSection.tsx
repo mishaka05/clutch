@@ -6,6 +6,7 @@
 import React from 'react';
 import { Sparkles, Flame, ChevronRight, Info, Activity } from 'lucide-react';
 import { Task } from '../../types';
+import Button from '../../components/Button';
 
 interface HeroSectionProps {
   activeTasks: Task[];
@@ -25,93 +26,95 @@ export default function HeroSection({
   setActiveTab
 }: HeroSectionProps) {
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 border-0">
       
       {/* Today's Focus KPI Banner */}
-      <div className="lg:col-span-2 bg-gradient-to-r from-[#122338] to-[#0A1624] border border-[#1C2F46] rounded-2xl p-5 flex flex-col justify-between relative overflow-hidden shadow-lg">
-        <div className="absolute top-0 right-0 w-48 h-48 bg-[#00D4FF]/5 blur-3xl rounded-full pointer-events-none" />
+      <div className="lg:col-span-2 bg-gradient-to-br from-[#0c0a18] via-[#050508] to-[#010103] border border-white/[0.08] rounded-2xl p-6 flex flex-col justify-between relative overflow-hidden shadow-[0_20px_50px_rgba(0,0,0,0.8)] group transition-all duration-300 hover:border-white/[0.15]">
+        <div className="absolute top-0 right-0 w-64 h-64 bg-[#8B5CF6]/8 blur-[100px] rounded-full pointer-events-none group-hover:bg-[#8B5CF6]/12 transition-all duration-500" />
         
         <div>
-          <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest bg-slate-900/50 px-2.5 py-1 rounded border border-slate-800">
+          <span className="text-[10px] font-mono text-slate-300 uppercase tracking-widest bg-white/[0.03] px-3 py-1.5 rounded-full border border-white/[0.06] backdrop-blur-sm">
             Active Cockpit Summary
           </span>
           
           {highestRiskTask ? (
-            <div className="mt-4 space-y-2">
-              <p className="text-xs text-slate-400 font-medium">HIGHEST DEADLINE RISK:</p>
-              <h2 className="text-2xl font-space font-bold text-slate-100 tracking-tight leading-snug">
+            <div className="mt-5 space-y-2.5">
+              <p className="text-[10px] text-slate-400 font-mono tracking-wider">CRITICAL ASSIGNMENT UNDER ANALYSIS:</p>
+              <h2 className="text-3xl font-space font-semibold text-white tracking-tight leading-snug group-hover:text-[#38BDF8] transition-colors duration-300">
                 {highestRiskTask.title}
               </h2>
-              <p className="text-xs font-mono text-[#FF3B5C] flex items-center gap-1.5 font-semibold animate-pulse">
-                <Flame size={13} />
-                CRISIS RATIO DETECTED ({highestRiskTask.riskScore}%) — INTERVENE IMMEDIATELY
+              <p className="text-xs font-mono text-[#FF6B6B] flex items-center gap-1.5 font-semibold bg-[#FF6B6B]/10 py-1.5 px-3 rounded-lg w-fit border border-[#FF6B6B]/20">
+                <Flame size={13} className="animate-pulse" />
+                CRITICAL THREAT LEVEL ({highestRiskTask.riskScore}%) — INTERVENE IMMEDIATELY
               </p>
             </div>
           ) : (
-            <div className="mt-4">
-              <h2 className="text-xl font-space font-bold text-slate-300">
+            <div className="mt-5">
+              <h2 className="text-2xl font-space font-medium text-slate-200 tracking-tight">
                 Operational Clean Slate
               </h2>
-              <p className="text-xs text-slate-500 font-mono mt-1">
-                All active systems nominal. Add tasks below to initialize tracking.
+              <p className="text-xs text-slate-400 font-mono mt-1.5">
+                ● All active systems nominal. Add tasks below to initialize autonomous tracking.
               </p>
             </div>
           )}
         </div>
 
         {/* Grid sub-indicators */}
-        <div className="grid grid-cols-3 gap-4 pt-6 border-t border-[#1C2F46]/50 mt-6">
-          <div>
-            <span className="block text-[10px] font-mono text-slate-500 uppercase">Active Tasks</span>
-            <span className="font-space font-bold text-xl text-[#00D4FF]">{activeTasks.length}</span>
+        <div className="grid grid-cols-3 gap-6 pt-6 border-t border-white/[0.06] mt-6">
+          <div className="space-y-1">
+            <span className="block text-[10px] font-mono text-slate-500 uppercase tracking-wider">Active Tasks</span>
+            <span className="font-space font-semibold text-2xl text-[#38BDF8] block tracking-tight">{activeTasks.length}</span>
           </div>
-          <div>
-            <span className="block text-[10px] font-mono text-slate-500 uppercase">Focus Time</span>
-            <span className="font-space font-bold text-xl text-slate-200">
+          <div className="space-y-1 border-l border-white/[0.06] pl-6">
+            <span className="block text-[10px] font-mono text-slate-500 uppercase tracking-wider">Focus Sprints</span>
+            <span className="font-space font-semibold text-2xl text-slate-100 block tracking-tight">
               {totalFocusHours > 0 ? `${totalFocusHours}h ` : ''}{totalFocusMins}m
             </span>
           </div>
-          <div>
-            <span className="block text-[10px] font-mono text-slate-500 uppercase">Critical</span>
-            <span className="font-space font-bold text-xl text-[#FF3B5C]">{crisisCount}</span>
+          <div className="space-y-1 border-l border-white/[0.06] pl-6">
+            <span className="block text-[10px] font-mono text-slate-500 uppercase tracking-wider">Critical</span>
+            <span className="font-space font-semibold text-2xl text-[#FF6B6B] block tracking-tight">{crisisCount}</span>
           </div>
         </div>
       </div>
 
       {/* Real-time Agent System Status */}
-      <div className="bg-[#101D2D] border border-[#1D3149] rounded-2xl p-5 flex flex-col justify-between shadow-lg">
+      <div className="bg-gradient-to-br from-[#07050d] to-[#010103] border border-white/[0.08] rounded-2xl p-6 flex flex-col justify-between shadow-[0_20px_50px_rgba(0,0,0,0.8)] group hover:border-white/[0.15] transition-all duration-300">
         <div className="flex justify-between items-start">
           <div className="space-y-1">
-            <h3 className="font-space font-bold text-sm text-slate-200 uppercase tracking-tight">
-              Background Agent
+            <h3 className="font-space font-semibold text-sm text-slate-200 uppercase tracking-wider">
+              Threat Engine
             </h3>
-            <p className="text-[10px] font-mono text-slate-500">
-              AUTONOMOUS THREAT ANALYSIS
+            <p className="text-[9px] font-mono text-slate-500 uppercase tracking-widest">
+              AUTONOMOUS ANALYSIS FEED
             </p>
           </div>
-          <div className="flex items-center gap-1 bg-[#7B61FF]/10 px-2 py-0.5 rounded border border-[#7B61FF]/20">
-            <span className="w-1.5 h-1.5 bg-[#7B61FF] rounded-full animate-ping" />
-            <span className="text-[9px] font-mono text-[#7B61FF] font-semibold">RUNNING</span>
+          <div className="flex items-center gap-1.5 bg-[#8B5CF6]/10 px-2.5 py-1 rounded-full border border-[#8B5CF6]/20">
+            <span className="w-1.5 h-1.5 bg-[#8B5CF6] rounded-full animate-pulse" />
+            <span className="text-[9px] font-mono text-[#8B5CF6] font-bold tracking-wider">ACTIVE</span>
           </div>
         </div>
 
-        <div className="space-y-3.5 py-4">
-          <div className="flex gap-3 text-xs">
-            <Info size={14} className="text-[#00D4FF] shrink-0 mt-0.5" />
-            <p className="text-slate-400 leading-normal font-sans">
-              Our system monitors task progress patterns, evaluating time-complexity ratios dynamically every 10 seconds.
+        <div className="space-y-3.5 py-5">
+          <div className="flex gap-3 text-xs bg-white/[0.02] p-3 rounded-xl border border-white/[0.04]">
+            <Info size={14} className="text-[#38BDF8] shrink-0 mt-0.5" />
+            <p className="text-slate-400 leading-relaxed font-sans text-[11px]">
+              Our systems evaluate task complexity ratios dynamically. Real-time updates prevent unexpected schedule slippage.
             </p>
           </div>
         </div>
 
-        <button
+        <Button
           id="view-logs-btn"
           onClick={() => setActiveTab('logs')}
-          className="w-full py-2.5 bg-[#09111C] hover:bg-[#1C2F46]/50 border border-[#1C2F46] hover:border-[#7B61FF] text-slate-300 hover:text-slate-100 font-space font-semibold uppercase rounded-lg tracking-wider text-[10px] transition-all cursor-pointer flex items-center justify-center gap-1"
+          variant="secondary"
+          size="sm"
+          className="w-full flex items-center justify-center gap-1.5"
         >
           Inspect Agent Logs
-          <ChevronRight size={12} />
-        </button>
+          <ChevronRight size={12} className="group-hover:translate-x-0.5 transition-transform" />
+        </Button>
       </div>
 
     </div>

@@ -4,64 +4,275 @@
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-space: "Space Grotesk", sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  --font-acronym: 'Space Grotesk', 'Inter', sans-serif;
 
-  --color-deep-navy: #0D1B2A;
-  --color-electric-cyan: #00D4FF;
-  --color-crisis-red: #FF3B5C;
-  --color-warning-amber: #FFB800;
-  --color-neon-green: #00E676;
-  --color-agent-purple: #7B61FF;
+  /* Premium Core Palette */
+  --color-void: #000000;
+  --color-bone: #ffffff;
+  --color-ash: #bdbdbd;
+  --color-smoke: #9a9a9a;
+  --color-plum-voltage: #8B5CF6;
+  --color-amber-spark: #FBBF24;
+  --color-lichen: #22C55E;
+
+  /* Preserve original theme colors for safety and merge with upgraded tokens */
+  --color-deep-navy: #04080F;
+  --color-electric-cyan: #38BDF8;
+  --color-crisis-red: #FF6B6B;
+  --color-warning-amber: #FBBF24;
+  --color-neon-green: #22C55E;
+  --color-agent-purple: #8B5CF6;
 }
 
 /* Custom Scrollbars */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #0D1B2A;
+  background: #000000;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #1B2D42;
-  border-radius: 3px;
+  background: #1a1a2e;
+  border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #00D4FF;
+  background: #8B5CF6;
+}
+
+/* Premium Cosmic UI Styling Classes */
+.glass-panel {
+  background: rgba(10, 10, 18, 0.7);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.5);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.glass-panel-hover:hover {
+  border-color: rgba(139, 92, 246, 0.4);
+  box-shadow: 0 10px 40px rgba(139, 92, 246, 0.1);
+  transform: translateY(-2px);
+}
+
+.glass-card-purple {
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.15) 0%, rgba(0, 0, 0, 0.8) 100%);
+  border: 1px solid rgba(139, 92, 246, 0.25);
+  backdrop-filter: blur(12px);
+}
+
+.glass-card-cyan {
+  background: linear-gradient(135deg, rgba(56, 189, 248, 0.1) 0%, rgba(0, 0, 0, 0.8) 100%);
+  border: 1px solid rgba(56, 189, 248, 0.2);
+  backdrop-filter: blur(12px);
+}
+
+.glass-card-red {
+  background: linear-gradient(135deg, rgba(255, 107, 107, 0.12) 0%, rgba(0, 0, 0, 0.83) 100%);
+  border: 1px solid rgba(255, 107, 107, 0.25);
+  backdrop-filter: blur(12px);
+}
+
+.glass-btn-primary {
+  background: #8B5CF6;
+  color: #ffffff;
+  border-radius: 9999px;
+  font-family: "Space Grotesk", sans-serif;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 0 15px rgba(139, 92, 246, 0.4);
+}
+
+.glass-btn-primary:hover {
+  background: #9066ff;
+  box-shadow: 0 0 25px rgba(128, 82, 255, 0.6);
+  transform: translateY(-1px);
+}
+
+.glass-btn-secondary {
+  background: rgba(255, 255, 255, 0.04);
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 9999px;
+  transition: all 0.2s ease;
+}
+
+.glass-btn-secondary:hover {
+  background: rgba(255, 255, 255, 0.09);
+  border-color: rgba(255, 255, 255, 0.25);
 }
 
 /* Custom glow utilities */
 .glow-cyan {
-  text-shadow: 0 0 10px rgba(0, 212, 255, 0.5), 0 0 20px rgba(0, 212, 255, 0.2);
+  text-shadow: 0 0 10px rgba(0, 212, 255, 0.5);
 }
 
 .glow-red {
-  text-shadow: 0 0 10px rgba(255, 59, 92, 0.5), 0 0 20px rgba(255, 59, 92, 0.2);
+  text-shadow: 0 0 10px rgba(255, 59, 92, 0.5);
 }
 
 .glow-purple {
-  text-shadow: 0 0 10px rgba(123, 97, 255, 0.5), 0 0 20px rgba(123, 97, 255, 0.2);
+  text-shadow: 0 0 10px rgba(128, 82, 255, 0.5);
 }
 
 .border-glow-cyan {
-  box-shadow: 0 0 15px rgba(0, 212, 255, 0.25);
+  box-shadow: 0 0 15px rgba(0, 212, 255, 0.15);
 }
 
 .border-glow-red {
-  box-shadow: 0 0 15px rgba(255, 59, 92, 0.25);
+  box-shadow: 0 0 15px rgba(255, 59, 92, 0.15);
 }
 
 .border-glow-purple {
-  box-shadow: 0 0 15px rgba(123, 97, 255, 0.25);
+  box-shadow: 0 0 15px rgba(128, 82, 255, 0.15);
 }
 
 /* Hide default input autofill styles */
 input:-webkit-autofill,
 input:-webkit-autofill:hover,
 input:-webkit-autofill:focus {
-  -webkit-text-fill-color: #f1f5f9;
-  -webkit-box-shadow: 0 0 0px 1000px #132435 inset;
+  -webkit-text-fill-color: #ffffff;
+  -webkit-box-shadow: 0 0 0px 1000px #0a0a0f inset;
   transition: background-color 5000s ease-in-out 0s;
 }
+
+/* Premium Button CTA CSS with Custom Keyframes and Rotating Borders */
+@keyframes premium-btn-rotate {
+  0% {
+    transform: translate(-50%, -50%) rotate(0deg);
+  }
+  100% {
+    transform: translate(-50%, -50%) rotate(360deg);
+  }
+}
+
+.clutch-premium-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: 9999px;
+  cursor: pointer;
+  font-family: "Space Grotesk", sans-serif;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  transition: transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1), box-shadow 0.3s ease, background-color 0.3s ease, border-color 0.3s ease;
+  transform-origin: center;
+  outline: none;
+}
+
+.clutch-premium-btn:hover {
+  transform: scale(1.03);
+}
+
+.clutch-premium-btn:active {
+  transform: scale(0.98);
+}
+
+/* Dots border container */
+.clutch-premium-btn-dots {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: calc(100% + 2px);
+  height: calc(100% + 2px);
+  background-color: transparent;
+  border-radius: 9999px;
+  overflow: hidden;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.clutch-premium-btn-dots::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  transform-origin: 0% 0%;
+  width: 130%;
+  height: 2rem;
+  background: linear-gradient(90deg, #8B5CF6 0%, #38BDF8 100%);
+  mask: linear-gradient(transparent 20%, white 120%);
+  -webkit-mask: linear-gradient(transparent 20%, white 120%);
+  animation: premium-btn-rotate 3s linear infinite;
+}
+
+/* Danger variant dots */
+.clutch-premium-btn-dots-danger::before {
+  background: linear-gradient(90deg, #FF6B6B 0%, #FBBF24 100%);
+  animation: premium-btn-rotate 3s linear infinite;
+}
+
+/* Inner overlay container to ensure content layer is placed above active background shapes */
+.clutch-premium-btn-inner {
+  position: relative;
+  z-index: 10;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: 9999px;
+  background-color: #0b0716;
+  transition: background-color 0.3s ease;
+}
+
+.clutch-premium-btn:hover .clutch-premium-btn-inner {
+  background-color: #120e22;
+}
+
+/* Danger variant inner overlay background */
+.clutch-premium-btn-inner-danger {
+  background-color: #170407;
+}
+
+.clutch-premium-btn:hover .clutch-premium-btn-inner-danger {
+  background-color: #26070c;
+}
+
+/* Progress Bar Sweeping Highlight */
+@keyframes progress-bar-sweep {
+  0% {
+    transform: translateX(-100%);
+  }
+  50% {
+    transform: translateX(100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.progress-bar-sweep {
+  position: relative;
+  overflow: hidden;
+}
+
+.progress-bar-sweep::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 50%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.25) 50%,
+    transparent
+  );
+  animation: progress-bar-sweep 2.5s infinite linear;
+}
+
+

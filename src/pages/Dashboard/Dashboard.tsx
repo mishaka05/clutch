@@ -19,6 +19,7 @@ import CrisisTakeoverOverlay from './CrisisMode';
 import RiskGauge from './RiskGauge';
 import CalendarView from './CalendarView';
 import { formatHumanFriendlyDeadline } from '../../utils/dateUtils';
+import Button from '../../components/Button';
 
 interface DashboardProps {
   user: UserProfile;
@@ -172,27 +173,27 @@ export default function Dashboard({ user, activeTab, setActiveTab }: DashboardPr
     switch (displayed) {
       case 'evaluating':
         return {
-          bg: 'bg-amber-500/10 border-amber-500/30 text-amber-400',
+          bg: 'bg-[#FBBF24]/10 border-[#FBBF24]/30 text-[#FBBF24] shadow-[0_0_10px_rgba(251,191,36,0.15)] backdrop-blur-md',
           text: '🟡 Evaluating'
         };
       case 'recovery':
         return {
-          bg: 'bg-red-500/10 border-red-500/30 text-red-400',
+          bg: 'bg-[#FF6B6B]/10 border-[#FF6B6B]/30 text-[#FF6B6B] shadow-[0_0_10px_rgba(255,107,107,0.15)] backdrop-blur-md',
           text: '🔴 Recovery Active'
         };
       case 'scheduling':
         return {
-          bg: 'bg-[#00D4FF]/10 border-[#00D4FF]/30 text-[#00D4FF]',
+          bg: 'bg-[#38BDF8]/10 border-[#38BDF8]/30 text-[#38BDF8] shadow-[0_0_10px_rgba(56,189,248,0.15)] backdrop-blur-md',
           text: '🔵 Calendar Scheduling'
         };
       case 'dispatch':
         return {
-          bg: 'bg-[#7B61FF]/10 border-[#7B61FF]/30 text-[#7B61FF]',
+          bg: 'bg-[#8B5CF6]/10 border-[#8B5CF6]/30 text-[#8B5CF6] shadow-[0_0_10px_rgba(139,92,246,0.15)] backdrop-blur-md',
           text: '🟣 Notification Dispatch'
         };
       default:
         return {
-          bg: 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400',
+          bg: 'bg-[#22C55E]/10 border-[#22C55E]/30 text-[#22C55E] shadow-[0_0_10px_rgba(34,197,94,0.15)] backdrop-blur-md',
           text: '🟢 Active Monitoring'
         };
     }
@@ -408,7 +409,7 @@ export default function Dashboard({ user, activeTab, setActiveTab }: DashboardPr
   const crisisCount = activeTasks.filter(t => t.riskScore >= 80).length;
 
   return (
-    <div className="flex-1 w-full flex flex-col md:flex-row bg-[#0D1B2A] relative min-h-[calc(100vh-65px)]">
+    <div className="flex-1 w-full flex flex-col md:flex-row bg-transparent relative min-h-[calc(100vh-65px)]">
       
       {/* Dynamic Celebration Confetti overlay */}
       <AnimatePresence>
@@ -507,7 +508,7 @@ export default function Dashboard({ user, activeTab, setActiveTab }: DashboardPr
                 </p>
               </div>
               <div className="flex items-center gap-3">
-                <button
+                <Button
                   id="run-agent-scan-btn"
                   onClick={async () => {
                     try {
@@ -517,13 +518,12 @@ export default function Dashboard({ user, activeTab, setActiveTab }: DashboardPr
                       console.error('Manual assessment scan failed:', e);
                     }
                   }}
-                  className={`flex items-center gap-1.5 px-3 py-1 bg-[#091524] border border-[#1A2E46] hover:border-[#7B61FF]/40 text-slate-300 hover:text-slate-100 rounded text-xs font-mono transition-all cursor-pointer shadow-md uppercase tracking-wider ${
-                    agentStatus === 'evaluating' ? 'opacity-50 cursor-not-allowed' : ''
-                  }`}
+                  variant="secondary"
+                  size="sm"
                   disabled={agentStatus === 'evaluating'}
                 >
                   🤖 Run Risk Assessor
-                </button>
+                </Button>
                 <div className={`flex items-center gap-1.5 border px-3 py-1 rounded text-xs font-mono transition-all duration-300 ${getBadgeStyles().bg}`}>
                   <Activity size={13} className="animate-pulse" />
                   <span>{getBadgeStyles().text}</span>
@@ -900,19 +900,22 @@ export default function Dashboard({ user, activeTab, setActiveTab }: DashboardPr
                     </div>
 
                     <div className="pt-4 flex gap-3">
-                      <button
+                      <Button
                         type="submit"
-                        className="flex-1 py-2 bg-[#00E676] hover:bg-[#00c853] text-[#0D1B2A] text-xs font-bold uppercase font-space rounded-xl tracking-wider transition-colors cursor-pointer"
+                        variant="primary"
+                        size="sm"
+                        className="flex-1"
                       >
                         Save Changes
-                      </button>
-                      <button
+                      </Button>
+                      <Button
                         type="button"
                         onClick={() => setIsEditingTask(false)}
-                        className="px-4 py-2 bg-[#122234] hover:bg-[#1E334D] border border-[#1C2F46] text-slate-300 text-xs font-bold uppercase font-space rounded-xl transition-colors cursor-pointer"
+                        variant="ghost"
+                        size="sm"
                       >
                         Cancel
-                      </button>
+                      </Button>
                     </div>
                   </form>
                 ) : (
@@ -954,10 +957,10 @@ export default function Dashboard({ user, activeTab, setActiveTab }: DashboardPr
                               🕒 {formatHumanFriendlyDeadline(selectedTask.deadline)}
                             </p>
                           </div>
-                          <span className={`text-[9px] font-mono font-bold px-2 py-0.5 rounded uppercase ${
-                            selectedTask.priority === 'high' ? 'bg-red-500/10 text-red-400 border border-red-500/20' :
-                            selectedTask.priority === 'medium' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' :
-                            'bg-green-500/10 text-green-400 border border-green-500/20'
+                          <span className={`text-[9px] font-mono font-bold px-2 py-0.5 rounded-full uppercase border backdrop-blur-md ${
+                            selectedTask.priority === 'high' ? 'bg-[#FF6B6B]/10 text-[#FF6B6B] border-[#FF6B6B]/25 shadow-[0_0_8px_rgba(255,107,107,0.1)]' :
+                            selectedTask.priority === 'medium' ? 'bg-[#FBBF24]/10 text-[#FBBF24] border-[#FBBF24]/25 shadow-[0_0_8px_rgba(251,191,36,0.1)]' :
+                            'bg-[#22C55E]/10 text-[#22C55E] border-[#22C55E]/25 shadow-[0_0_8px_rgba(34,197,94,0.1)]'
                           }`}>
                             {selectedTask.priority} priority
                           </span>
@@ -965,17 +968,19 @@ export default function Dashboard({ user, activeTab, setActiveTab }: DashboardPr
                       </div>
 
                       {/* Active Focus Session Button */}
-                      <button
+                      <Button
                         id="start-focus-session-btn"
                         onClick={() => {
                           handleStartFocusSession(selectedTask);
                           setSelectedTask(null);
                         }}
-                        className="w-full py-3.5 bg-gradient-to-r from-[#00E676] to-[#00D4FF] hover:from-[#00E676]/90 hover:to-[#00D4FF]/90 text-[#0D1B2A] font-space font-bold uppercase tracking-wider text-xs rounded-xl shadow-[0_0_20px_rgba(0,230,118,0.25)] hover:shadow-[0_0_30px_rgba(0,212,255,0.4)] hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer flex items-center justify-center gap-2"
+                        variant="primary"
+                        size="md"
+                        className="w-full mt-2"
                       >
-                        <Play size={14} className="fill-[#0D1B2A]" />
+                        <Play size={14} className="fill-white" />
                         ⚡ Start Sprint Focus Session
-                      </button>
+                      </Button>
 
                       <div className="space-y-3">
                         <h4 className="text-xs font-mono text-slate-400 uppercase tracking-wider">
@@ -1016,26 +1021,25 @@ export default function Dashboard({ user, activeTab, setActiveTab }: DashboardPr
                           ))}
                         </div>
 
-                        <button
+                        <Button
                           id="edit-details-inline-btn"
                           onClick={() => setIsEditingTask(true)}
-                          className="w-full py-2.5 bg-[#7B61FF]/10 hover:bg-[#7B61FF]/20 border border-[#7B61FF]/30 hover:border-[#7B61FF]/50 text-[#7B61FF] hover:text-slate-100 text-xs font-mono uppercase rounded-xl transition-all cursor-pointer flex items-center justify-center gap-2 mt-4"
+                          variant="secondary"
+                          size="sm"
+                          className="w-full mt-4 flex items-center justify-center gap-2 text-xs font-mono"
                         >
                           ⚙️ Configure Task & Checklist
-                        </button>
+                        </Button>
 
-                        <button
+                        <Button
                           id="toggle-coach-inline-btn"
                           onClick={() => setIsCoachExpanded(!isCoachExpanded)}
-                          className={`w-full py-2.5 border text-xs font-mono uppercase rounded-xl transition-all cursor-pointer flex items-center justify-center gap-2 mt-2 ${
-                            isCoachExpanded
-                              ? 'bg-[#00D4FF]/10 hover:bg-[#00D4FF]/20 border-[#00D4FF]/30 hover:border-[#00D4FF]/50 text-[#00D4FF] hover:text-slate-100'
-                              : 'bg-[#00D4FF]/20 hover:bg-[#00D4FF]/30 border-[#00D4FF]/40 hover:border-[#00D4FF]/60 text-[#00D4FF] hover:text-slate-100'
-                          }`}
+                          variant={isCoachExpanded ? "secondary" : "primary"}
+                          size="sm"
+                          className="w-full mt-2 flex items-center justify-center gap-2 text-xs font-mono"
                         >
-                          <Sparkles size={13} />
                           {isCoachExpanded ? 'Collapse AI Decision Coach' : 'Consult AI Decision Coach'}
-                        </button>
+                        </Button>
                       </div>
                     </div>
 

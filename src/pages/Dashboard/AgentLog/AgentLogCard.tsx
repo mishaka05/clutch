@@ -22,77 +22,77 @@ export default function AgentLogCard({ log, onRefresh }: AgentLogCardProps) {
     <div className="relative group">
       {/* Left Bullet Icon */}
       <span 
-        className="absolute -left-[35px] top-1.5 w-6 h-6 rounded-full border-2 border-[#0D1B2A] flex items-center justify-center shadow-lg transition-transform group-hover:scale-110"
+        className="absolute -left-[35px] top-1.5 w-6 h-6 rounded-full border-2 border-[#020106] flex items-center justify-center shadow-lg transition-transform group-hover:scale-110"
         style={{
-          backgroundColor: isErr ? '#EF4444' : log.isAgentInitiated ? '#7B61FF' : '#00D4FF',
+          backgroundColor: isErr ? '#FF3B5C' : log.isAgentInitiated ? '#8052ff' : '#00D4FF',
           boxShadow: isErr 
-            ? '0 0 10px rgba(239, 68, 68, 0.4)' 
+            ? '0 0 12px rgba(255, 59, 92, 0.4)' 
             : log.isAgentInitiated 
-              ? '0 0 10px rgba(123, 97, 255, 0.4)' 
-              : 'none'
+              ? '0 0 12px rgba(128, 82, 255, 0.4)' 
+              : '0 0 12px rgba(0, 212, 255, 0.2)'
         }}
       >
         {isErr ? (
-          <AlertTriangle size={11} className="text-white animate-pulse" />
+          <AlertTriangle size={10} className="text-white animate-pulse" />
         ) : log.isAgentInitiated ? (
-          <Sparkles size={11} className="text-white" />
+          <Sparkles size={10} className="text-white" />
         ) : (
-          <Check size={11} className="text-[#0D1B2A] font-bold" />
+          <Check size={10} className="text-black font-bold" />
         )}
       </span>
 
-      <div className={`p-5 rounded-2xl border transition-all ${
+      <div className={`p-6 rounded-2xl border transition-all duration-300 ${
         isErr 
-          ? 'bg-red-950/20 border-red-500/20 hover:border-red-500/40' 
+          ? 'bg-gradient-to-br from-[#1c080d] to-[#040103] border-red-500/20 hover:border-red-500/40 shadow-2xl' 
           : log.isAgentInitiated 
-            ? 'bg-[#121B2A] border-[#1C2F46] hover:border-[#7B61FF]/40' 
-            : 'bg-slate-900/40 border-[#1C2F46]/50 hover:border-[#00D4FF]/30'
+            ? 'bg-gradient-to-br from-[#0c0a18] via-[#050508] to-[#010103] border-white/[0.08] hover:border-[#8052ff]/40 shadow-lg' 
+            : 'bg-gradient-to-br from-[#050508] to-[#010103] border-white/[0.06] hover:border-[#00D4FF]/30 shadow-md'
       }`}>
         {/* Card Header row */}
-        <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-3.5">
           <div className="flex items-center gap-2">
             <span 
-              className="text-sm font-space font-bold uppercase tracking-wider"
-              style={{ color: isErr ? '#F87171' : log.isAgentInitiated ? '#9D8BFF' : '#00D4FF' }}
+              className="text-xs font-space font-semibold uppercase tracking-wider"
+              style={{ color: isErr ? '#FF5C7A' : log.isAgentInitiated ? '#a385ff' : '#00D4FF' }}
             >
               {log.actionTaken}
             </span>
             
             {log.agentType && (
-              <span className="text-[9px] font-mono bg-slate-900/80 text-slate-400 border border-slate-800 px-2 py-0.5 rounded uppercase font-semibold">
+              <span className="text-[8px] font-mono bg-white/[0.03] text-slate-400 border border-white/[0.05] px-2 py-0.5 rounded-full uppercase font-bold tracking-wider">
                 🤖 {log.agentType}
               </span>
             )}
 
             {log.evaluationSource && (
-              <span className={`text-[9px] font-mono px-2 py-0.5 rounded uppercase font-semibold border ${
+              <span className={`text-[8px] font-mono px-2 py-0.5 rounded-full uppercase font-bold tracking-wider border ${
                 log.evaluationSource === 'gemini'
-                  ? 'bg-purple-950/40 text-purple-400 border-purple-500/20'
+                  ? 'bg-purple-950/20 text-purple-400 border-purple-500/20'
                   : log.evaluationSource === 'deterministic'
-                    ? 'bg-blue-950/40 text-blue-400 border-blue-500/20'
-                    : 'bg-amber-950/40 text-amber-400 border-amber-500/20'
+                    ? 'bg-blue-950/20 text-blue-400 border-blue-500/20'
+                    : 'bg-amber-950/20 text-amber-400 border-amber-500/20'
               }`}>
                 🧠 {log.evaluationSource}
               </span>
             )}
 
             {isErr && (
-              <span className="text-[9px] font-mono bg-red-500/10 text-red-400 border border-red-500/20 px-2 py-0.5 rounded uppercase font-semibold animate-pulse">
+              <span className="text-[8px] font-mono bg-red-500/10 text-red-400 border border-red-500/20 px-2 py-0.5 rounded-full uppercase font-bold tracking-wider animate-pulse">
                 {log.status === 'failed_retrying' ? '🔄 RETRY QUEUE (1 of 3)' : '🔴 TERMINAL OUTAGE'}
               </span>
             )}
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-[10px] font-mono text-slate-500">
-              {new Date(log.timestamp).toLocaleDateString()} {new Date(log.timestamp).toLocaleTimeString()}
+            <span className="text-[9px] font-mono text-slate-500 uppercase tracking-widest font-semibold">
+              {new Date(log.timestamp).toLocaleDateString()} {new Date(log.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
             </span>
           </div>
         </div>
 
         {/* Task Context Title Banner */}
         {log.taskTitle && (
-          <div className="mb-3 inline-flex items-center gap-1.5 bg-slate-950/40 border border-slate-900 px-2.5 py-1 rounded text-[11px] font-mono text-slate-400">
-            <span className="text-slate-500">Target Task:</span>
+          <div className="mb-3.5 inline-flex items-center gap-2 bg-white/[0.01] border border-white/[0.05] px-3 py-1 rounded-xl text-[10px] font-mono text-slate-400">
+            <span className="text-slate-500 uppercase font-bold tracking-wider text-[8px]">Target Task:</span>
             <span className="text-slate-300 font-sans font-medium">{log.taskTitle}</span>
           </div>
         )}
@@ -104,9 +104,9 @@ export default function AgentLogCard({ log, onRefresh }: AgentLogCardProps) {
 
         {/* Error block details */}
         {isErr && log.errorMessage && (
-          <div className="mb-4 p-3 bg-red-950/40 rounded-xl border border-red-500/10 font-mono text-[10px] text-red-400 space-y-1">
-            <div><strong className="text-red-300">DIAGNOSTIC ERROR LOG:</strong> {log.errorMessage}</div>
-            <div className="text-slate-500 font-sans">System State: Active queue hold backoff (15s polling active)</div>
+          <div className="mb-4 p-4 bg-red-950/15 rounded-xl border border-red-500/10 font-mono text-[10px] text-red-400 space-y-1">
+            <div><strong className="text-red-300 uppercase tracking-wider text-[9px]">DIAGNOSTIC ERROR LOG:</strong> {log.errorMessage}</div>
+            <div className="text-slate-500 font-sans text-[10px]">System State: Active queue hold backoff (15s polling active)</div>
           </div>
         )}
 
@@ -114,10 +114,10 @@ export default function AgentLogCard({ log, onRefresh }: AgentLogCardProps) {
         <ExplainabilityPanel log={log} />
 
         {/* Footer Action Bar for error recovery & Telemetry (LEARN Matrix) */}
-        <div className="mt-4 pt-3 border-t border-slate-800/40 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-1">
-            <span className="text-[10px] font-mono text-slate-500 uppercase">Approval Model:</span>
-            <span className="text-[10px] font-mono text-[#7B61FF] bg-[#7B61FF]/10 px-2 py-0.5 rounded font-semibold ml-1">
+        <div className="mt-4 pt-3.5 border-t border-white/[0.06] flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-1.5">
+            <span className="text-[9px] font-mono text-slate-500 uppercase font-bold tracking-wider">Approval:</span>
+            <span className="text-[9px] font-mono text-[#8052ff] bg-[#8052ff]/10 border border-[#8052ff]/20 px-2.5 py-0.5 rounded-full font-bold uppercase tracking-wider">
               {log.userApprovalApplied || 'AUTONOMOUS'}
             </span>
           </div>
@@ -139,24 +139,24 @@ export default function AgentLogCard({ log, onRefresh }: AgentLogCardProps) {
                 await firebaseService.runTaskMonitorCycle(undefined, true);
                 await onRefresh();
               }}
-              className="bg-emerald-500 hover:bg-emerald-400 text-[#0D1B2A] text-[10px] font-bold font-space uppercase px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer"
+              className="bg-[#00E676] hover:bg-[#22ff8f] text-black text-[10px] font-bold font-space uppercase px-4 py-2 rounded-xl flex items-center gap-1.5 transition-all cursor-pointer shadow-md active:scale-[0.97]"
             >
-              <Play size={10} className="fill-[#0D1B2A]" />
-              Trigger Manual Self-Heal Recovery Loop
+              <Play size={10} className="fill-black text-black" />
+              Manual Self-Heal Loop
             </button>
           ) : (
             log.isAgentInitiated && (
-              <div className="flex items-center gap-2">
-                <span className="text-[9px] font-mono text-slate-400 uppercase mr-1">Telemetry (LEARN):</span>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[8px] font-mono text-slate-500 uppercase font-bold tracking-wider mr-1">Feedback Loop:</span>
                 <button
                   onClick={async () => {
                     await firebaseService.updateAgentLogTelemetry(log.id, 'USER_ACCEPTED');
                     await onRefresh();
                   }}
-                  className={`px-2 py-0.5 text-[9px] font-mono rounded border transition-all ${
+                  className={`px-3 py-1 text-[9px] font-mono rounded-full border transition-all cursor-pointer active:scale-90 ${
                     log.telemetryFeedback === 'USER_ACCEPTED'
-                      ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40 font-bold'
-                      : 'bg-slate-900 border-slate-800 text-slate-500 hover:text-slate-300 hover:border-slate-700'
+                      ? 'bg-emerald-500/20 text-[#00E676] border-emerald-500/35 font-bold'
+                      : 'bg-white/[0.01] border-white/[0.05] text-slate-500 hover:text-slate-300 hover:border-white/[0.12]'
                   }`}
                 >
                   Accept
@@ -166,10 +166,10 @@ export default function AgentLogCard({ log, onRefresh }: AgentLogCardProps) {
                     await firebaseService.updateAgentLogTelemetry(log.id, 'USER_IGNORED');
                     await onRefresh();
                   }}
-                  className={`px-2 py-0.5 text-[9px] font-mono rounded border transition-all ${
+                  className={`px-3 py-1 text-[9px] font-mono rounded-full border transition-all cursor-pointer active:scale-90 ${
                     log.telemetryFeedback === 'USER_IGNORED'
-                      ? 'bg-amber-500/20 text-amber-400 border-amber-500/40 font-bold'
-                      : 'bg-slate-900 border-slate-800 text-slate-500 hover:text-slate-300 hover:border-slate-700'
+                      ? 'bg-amber-500/20 text-[#FFB800] border-amber-500/35 font-bold'
+                      : 'bg-white/[0.01] border-white/[0.05] text-slate-500 hover:text-slate-300 hover:border-white/[0.12]'
                   }`}
                 >
                   Ignore
@@ -179,10 +179,10 @@ export default function AgentLogCard({ log, onRefresh }: AgentLogCardProps) {
                     await firebaseService.updateAgentLogTelemetry(log.id, 'USER_DELETED');
                     await onRefresh();
                   }}
-                  className={`px-2 py-0.5 text-[9px] font-mono rounded border transition-all ${
+                  className={`px-3 py-1 text-[9px] font-mono rounded-full border transition-all cursor-pointer active:scale-90 ${
                     log.telemetryFeedback === 'USER_DELETED'
-                      ? 'bg-red-500/20 text-red-400 border-red-500/40 font-bold'
-                      : 'bg-slate-900 border-slate-800 text-slate-500 hover:text-slate-300 hover:border-slate-700'
+                      ? 'bg-red-500/20 text-[#FF3B5C] border-red-500/35 font-bold'
+                      : 'bg-white/[0.01] border-white/[0.05] text-slate-500 hover:text-slate-300 hover:border-white/[0.12]'
                   }`}
                 >
                   Revert

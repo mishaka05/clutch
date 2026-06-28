@@ -45,13 +45,13 @@ export default function Navbar({ user, tasks, activeTab, setActiveTab, onLogout 
     <header className="w-full bg-[#0E1B2A]/90 border-b border-[#1C2F46] backdrop-blur-md sticky top-0 z-40 px-3 sm:px-4 md:px-6 lg:px-8 py-3.5 flex justify-between items-center transition-all">
       {/* Brand Logo and Title */}
       <div className="flex items-center gap-2 select-none shrink-0">
-        <div className="w-7 h-7 rounded-lg bg-gradient-to-tr from-[#00D4FF] to-[#7B61FF] flex items-center justify-center shadow-[0_0_15px_rgba(0,212,255,0.3)]">
+        <div className="w-7 h-7 rounded-lg bg-gradient-to-tr from-[#38BDF8] to-[#8B5CF6] flex items-center justify-center shadow-[0_0_15px_rgba(56,189,248,0.3)]">
           <Flame size={15} className="text-[#0D1B2A] stroke-[3]" />
         </div>
         <span className="font-space font-bold text-base sm:text-lg text-slate-100 tracking-wider">
           CLUTCH
         </span>
-        <span className="hidden lg:inline text-[9px] font-mono text-[#00D4FF] uppercase tracking-widest bg-[#00D4FF]/10 px-2 py-0.5 rounded border border-[#00D4FF]/20">
+        <span className="hidden lg:inline text-[9px] font-mono text-[#38BDF8] uppercase tracking-widest bg-[#38BDF8]/10 px-2 py-0.5 rounded border border-[#38BDF8]/20">
           Agent Active
         </span>
       </div>
@@ -63,7 +63,7 @@ export default function Navbar({ user, tasks, activeTab, setActiveTab, onLogout 
           onClick={() => setActiveTab('dashboard')}
           className={`flex items-center gap-1.5 px-2.5 lg:px-4 py-1.5 rounded-md text-xs font-space uppercase tracking-wider transition-all cursor-pointer ${
             activeTab === 'dashboard'
-              ? 'bg-[#00D4FF] text-[#0D1B2A] font-bold shadow-[0_0_15px_rgba(0,212,255,0.2)]'
+              ? 'bg-[#38BDF8] text-[#0D1B2A] font-bold shadow-[0_0_15px_rgba(56,189,248,0.2)]'
               : 'text-slate-400 hover:text-slate-100'
           }`}
         >
@@ -75,7 +75,7 @@ export default function Navbar({ user, tasks, activeTab, setActiveTab, onLogout 
           onClick={() => setActiveTab('calendar')}
           className={`flex items-center gap-1.5 px-2.5 lg:px-4 py-1.5 rounded-md text-xs font-space uppercase tracking-wider transition-all cursor-pointer ${
             activeTab === 'calendar'
-              ? 'bg-[#00E676] text-[#0D1B2A] font-bold shadow-[0_0_15px_rgba(0,230,118,0.2)]'
+              ? 'bg-[#22C55E] text-[#0D1B2A] font-bold shadow-[0_0_15px_rgba(34,197,94,0.2)]'
               : 'text-slate-400 hover:text-slate-100'
           }`}
         >
@@ -87,7 +87,7 @@ export default function Navbar({ user, tasks, activeTab, setActiveTab, onLogout 
           onClick={() => setActiveTab('logs')}
           className={`flex items-center gap-1.5 px-2.5 lg:px-4 py-1.5 rounded-md text-xs font-space uppercase tracking-wider transition-all cursor-pointer ${
             activeTab === 'logs'
-              ? 'bg-[#7B61FF] text-[#0D1B2A] font-bold shadow-[0_0_15px_rgba(123,97,255,0.2)]'
+              ? 'bg-[#8B5CF6] text-[#0D1B2A] font-bold shadow-[0_0_15px_rgba(139,92,246,0.2)]'
               : 'text-slate-400 hover:text-slate-100'
           }`}
         >
@@ -260,7 +260,7 @@ export default function Navbar({ user, tasks, activeTab, setActiveTab, onLogout 
       <button
         onClick={() => setActiveTab('dashboard')}
         className={`flex flex-col items-center gap-1 cursor-pointer transition-all ${
-          activeTab === 'dashboard' ? 'text-[#00D4FF]' : 'text-slate-400'
+          activeTab === 'dashboard' ? 'text-[#38BDF8]' : 'text-slate-400'
         }`}
       >
         <LayoutDashboard size={18} />
@@ -269,7 +269,7 @@ export default function Navbar({ user, tasks, activeTab, setActiveTab, onLogout 
       <button
         onClick={() => setActiveTab('calendar')}
         className={`flex flex-col items-center gap-1 cursor-pointer transition-all ${
-          activeTab === 'calendar' ? 'text-[#00E676]' : 'text-slate-400'
+          activeTab === 'calendar' ? 'text-[#22C55E]' : 'text-slate-400'
         }`}
       >
         <CalendarIcon size={18} />
@@ -278,7 +278,7 @@ export default function Navbar({ user, tasks, activeTab, setActiveTab, onLogout 
       <button
         onClick={() => setActiveTab('logs')}
         className={`flex flex-col items-center gap-1 cursor-pointer transition-all ${
-          activeTab === 'logs' ? 'text-[#7B61FF]' : 'text-slate-400'
+          activeTab === 'logs' ? 'text-[#8B5CF6]' : 'text-slate-400'
         }`}
       >
         <History size={18} />

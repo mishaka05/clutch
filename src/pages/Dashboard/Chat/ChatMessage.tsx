@@ -20,21 +20,21 @@ export default function ChatMessage({ msg, onAutoSchedule }: ChatMessageProps) {
     <div className={`flex flex-col ${isUser ? 'items-end' : 'items-start'}`}>
       <div
         className={`
-          max-w-[85%] rounded-xl p-3 text-xs leading-relaxed font-sans whitespace-pre-wrap
+          max-w-[85%] rounded-2xl p-4 text-xs leading-relaxed font-sans whitespace-pre-wrap shadow-lg
           ${isUser 
-            ? 'bg-[#00D4FF]/10 border border-[#00D4FF]/30 text-slate-100 rounded-tr-none' 
-            : 'bg-[#142436] border border-[#20364F] text-slate-200 rounded-tl-none'}
+            ? 'bg-[#8052ff]/10 border border-[#8052ff]/35 text-white rounded-tr-none' 
+            : 'bg-white/[0.02] border border-white/[0.06] text-slate-200 rounded-tl-none'}
         `}
       >
         {msg.text}
 
         {/* Inline Action Trigger Button in Model response */}
         {!isUser && msg.text.includes('[Confirm Booking]') && (
-          <div className="mt-3 pt-2.5 border-t border-slate-700/40 flex justify-end">
+          <div className="mt-3.5 pt-3 border-t border-white/[0.06] flex justify-end">
             <button
               id="confirm-booking-inline-btn"
               onClick={onAutoSchedule}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-[#7B61FF] text-[#0D1B2A] font-space font-bold uppercase rounded text-[10px] tracking-wider hover:bg-[#00D4FF] transition-all cursor-pointer"
+              className="flex items-center gap-1.5 px-4 py-2 bg-[#8052ff] hover:bg-[#9066ff] text-white font-space font-semibold uppercase rounded-xl text-[10px] tracking-wider transition-all cursor-pointer hover:shadow-[0_0_15px_rgba(128,82,255,0.4)] active:scale-[0.97]"
             >
               <Calendar size={11} />
               Confirm Booking
@@ -42,8 +42,8 @@ export default function ChatMessage({ msg, onAutoSchedule }: ChatMessageProps) {
           </div>
         )}
       </div>
-      <span className="text-[9px] font-mono text-slate-500 mt-1 uppercase tracking-widest px-1">
-        {isUser ? 'You' : 'Clutch Agent'}
+      <span className="text-[8px] font-mono text-slate-500 mt-1.5 uppercase tracking-widest px-2">
+        {isUser ? 'You' : 'Clutch Coach'}
       </span>
     </div>
   );

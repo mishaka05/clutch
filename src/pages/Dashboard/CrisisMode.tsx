@@ -8,6 +8,7 @@ import { motion } from 'motion/react';
 import { Flame, Sparkles } from 'lucide-react';
 import { Task } from '../../types';
 import { generateCrisisPlanWithAI } from '../../services/gemini';
+import Button from '../../components/Button';
 
 interface CrisisTakeoverProps {
   task: Task;
@@ -129,21 +130,25 @@ export default function CrisisTakeoverOverlay({ task, onDefuse, onDismiss }: Cri
 
         {/* Mitigate Crisis Done CTAs */}
         <div className="space-y-4 max-w-lg mx-auto w-full pt-2">
-          <button
+          <Button
             id="mitigate-done-btn"
             onClick={onDefuse}
-            className="w-full py-4 bg-[#FF3B5C] hover:bg-red-500 text-slate-100 font-space font-bold uppercase rounded-xl tracking-wider text-sm transition-all duration-300 shadow-[0_0_30px_rgba(255,59,92,0.35)] cursor-pointer hover:scale-101 active:scale-99"
+            variant="danger"
+            size="lg"
+            className="w-full"
           >
             I'M DONE (DEFUSE tension)
-          </button>
+          </Button>
 
-          <button
+          <Button
             id="crisis-dismiss-btn"
             onClick={onDismiss}
-            className="text-[10px] font-mono text-slate-500 hover:text-slate-300 uppercase tracking-widest block mx-auto cursor-pointer"
+            variant="ghost"
+            size="sm"
+            className="block mx-auto text-[10px] font-mono text-slate-500 hover:text-slate-300 uppercase tracking-widest"
           >
             This was a false alarm (postpone tracking)
-          </button>
+          </Button>
         </div>
 
       </div>

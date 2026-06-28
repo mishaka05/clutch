@@ -234,37 +234,39 @@ How can I rescue this deadline? I can:
   const firstUncompleted = uncompletedSubtasks.length > 0 ? uncompletedSubtasks[0] : null;
 
   return (
-    <div className="flex flex-col h-full bg-[#0B1521] border-l border-[#1B2F46] w-full">
+    <div className="flex flex-col h-full bg-[#020106] border-l border-white/[0.07] w-full">
       
       {/* Header Panel */}
-      <div className="p-4 bg-[#0F1D2C] border-b border-[#1C2F46] flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Sparkles size={16} className="text-[#00D4FF]" />
+      <div className="p-5 bg-white/[0.02] border-b border-white/[0.06] flex items-center justify-between backdrop-blur-md">
+        <div className="flex items-center gap-2.5">
+          <Sparkles size={16} className="text-[#8052ff]" />
           <div>
-            <h4 className="font-space font-bold text-sm text-slate-100 uppercase tracking-tight">
+            <h4 className="font-space font-semibold text-xs text-slate-200 uppercase tracking-widest">
               AI Decision Coach
             </h4>
-            <p className="text-[10px] font-mono text-slate-400">
+            <p className="text-[9px] font-mono text-slate-500 uppercase tracking-wider mt-0.5">
               Task Context: {task.riskScore}% risk • {hoursRemaining.toFixed(1)}h remaining
             </p>
           </div>
         </div>
         {task.riskScore > 80 && (
-          <span className="flex items-center gap-1 bg-red-500/10 border border-red-500/30 px-2 py-0.5 rounded text-[10px] font-space font-bold text-red-400 uppercase animate-pulse">
+          <span className="flex items-center gap-1 bg-red-500/10 border border-red-500/25 px-3 py-1 rounded-full text-[9px] font-space font-semibold text-red-400 uppercase tracking-wider animate-pulse">
             <AlertTriangle size={10} /> Rescue Active
           </span>
         )}
       </div>
 
       {/* Messages Scroll Area */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      <div className="flex-1 overflow-y-auto p-5 space-y-5">
         
         {/* 2. Rescue Mode Dedicated Panel for tasks with risk > 80% */}
         {task.riskScore > 80 && (
-          <div className="bg-gradient-to-r from-red-950/40 to-[#141E30] border border-red-500/30 rounded-xl p-4 space-y-3 shadow-md">
+          <div className="bg-gradient-to-br from-[#1c080d] to-[#040103] border border-red-500/25 rounded-2xl p-5 space-y-4 shadow-2xl relative overflow-hidden group">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-red-500/5 blur-3xl rounded-full pointer-events-none" />
+            
             <div className="flex items-center gap-2 text-red-400">
               <AlertTriangle size={16} className="animate-bounce" />
-              <h5 className="font-space font-bold text-xs uppercase tracking-wider">
+              <h5 className="font-space font-semibold text-xs uppercase tracking-widest">
                 Deadline Rescue Plan Active
               </h5>
             </div>
@@ -272,42 +274,42 @@ How can I rescue this deadline? I can:
               Task risk is critical at **{task.riskScore}%**. To guarantee successful delivery before your deadline, execute the following recovery strategy in order:
             </p>
             
-            <div className="space-y-2.5 pl-1">
+            <div className="space-y-3 pl-1">
               {firstUncompleted && (
-                <div className="flex items-start gap-2">
-                  <div className="font-mono text-[10px] bg-red-500/20 text-red-300 px-1.5 py-0.5 rounded mt-0.5">1</div>
+                <div className="flex items-start gap-3">
+                  <div className="font-mono text-[9px] bg-red-500/20 text-red-300 px-2 py-0.5 rounded-full mt-0.5">1</div>
                   <div className="text-[11px] text-slate-200">
-                    <span className="font-bold text-slate-100">Immediate Target:</span> Finish *"{firstUncompleted.title}"* ({firstUncompleted.durationMinutes} mins) to register progress immediately.
+                    <span className="font-bold text-white">Immediate Target:</span> Finish *"{firstUncompleted.title}"* ({firstUncompleted.durationMinutes} mins) to register progress immediately.
                   </div>
                 </div>
               )}
               
-              <div className="flex items-start gap-2">
-                <div className="font-mono text-[10px] bg-red-500/20 text-red-300 px-1.5 py-0.5 rounded mt-0.5">{firstUncompleted ? '2' : '1'}</div>
+              <div className="flex items-start gap-3">
+                <div className="font-mono text-[9px] bg-red-500/20 text-red-300 px-2 py-0.5 rounded-full mt-0.5">{firstUncompleted ? '2' : '1'}</div>
                 <div className="text-[11px] text-slate-200">
-                  <span className="font-bold text-slate-100">Scope Reduction:</span> Skip any optional/non-essential details to hit the core criteria first.
+                  <span className="font-bold text-white">Scope Reduction:</span> Skip any optional/non-essential details to hit the core criteria first.
                 </div>
               </div>
 
-              <div className="flex items-start gap-2">
-                <div className="font-mono text-[10px] bg-red-500/20 text-red-300 px-1.5 py-0.5 rounded mt-0.5">{firstUncompleted ? '3' : '2'}</div>
-                <div className="text-[11px] text-slate-200 flex flex-col gap-1.5">
+              <div className="flex items-start gap-3">
+                <div className="font-mono text-[9px] bg-red-500/20 text-red-300 px-2 py-0.5 rounded-full mt-0.5">{firstUncompleted ? '3' : '2'}</div>
+                <div className="text-[11px] text-slate-200 flex flex-col gap-2">
                   <span>
-                    <span className="font-bold text-slate-100">Deep Work Block:</span> Authorize a 90-minute focus session directly in your schedule.
+                    <span className="font-bold text-white">Deep Work Block:</span> Authorize a 90-minute focus session directly in your schedule.
                   </span>
                   <button
                     onClick={handleAutoSchedule}
-                    className="self-start flex items-center gap-1 bg-[#E11D48] hover:bg-[#F43F5E] text-white text-[9px] font-space font-bold uppercase py-1 px-2.5 rounded transition-all tracking-wider"
+                    className="self-start flex items-center gap-1.5 bg-[#E11D48] hover:bg-[#F43F5E] text-white text-[9px] font-space font-semibold uppercase py-1.5 px-3 rounded-full transition-all tracking-wider hover:shadow-[0_0_15px_rgba(225,29,72,0.4)] cursor-pointer active:scale-[0.97]"
                   >
                     <Calendar size={10} /> Book Focus Slot
                   </button>
                 </div>
               </div>
 
-              <div className="flex items-start gap-2">
-                <div className="font-mono text-[10px] bg-red-500/20 text-red-300 px-1.5 py-0.5 rounded mt-0.5">{firstUncompleted ? '4' : '3'}</div>
+              <div className="flex items-start gap-3">
+                <div className="font-mono text-[9px] bg-red-500/20 text-red-300 px-2 py-0.5 rounded-full mt-0.5">{firstUncompleted ? '4' : '3'}</div>
                 <div className="text-[11px] text-slate-200">
-                  <span className="font-bold text-slate-100">Validation:</span> Run a validation/compile checklist before sleeping to verify compliance.
+                  <span className="font-bold text-white">Validation:</span> Run a validation/compile checklist before sleeping to verify compliance.
                 </div>
               </div>
             </div>
@@ -321,10 +323,10 @@ How can I rescue this deadline? I can:
         {/* Dynamic Typing Feed */}
         {isTyping && (
           <div className="flex flex-col items-start">
-            <div className="bg-[#142436] border border-[#20364F] rounded-xl rounded-tl-none p-3 max-w-[85%] flex items-center gap-1">
-              <span className="w-1.5 h-1.5 bg-[#00D4FF] rounded-full animate-bounce" />
-              <span className="w-1.5 h-1.5 bg-[#00D4FF] rounded-full animate-bounce" style={{ animationDelay: '0.2s' }} />
-              <span className="w-1.5 h-1.5 bg-[#00D4FF] rounded-full animate-bounce" style={{ animationDelay: '0.4s' }} />
+            <div className="bg-white/[0.02] border border-white/[0.06] rounded-2xl rounded-tl-none p-3.5 max-w-[85%] flex items-center gap-1.5 shadow-md">
+              <span className="w-1.5 h-1.5 bg-[#8052ff] rounded-full animate-bounce" />
+              <span className="w-1.5 h-1.5 bg-[#8052ff] rounded-full animate-bounce" style={{ animationDelay: '0.2s' }} />
+              <span className="w-1.5 h-1.5 bg-[#8052ff] rounded-full animate-bounce" style={{ animationDelay: '0.4s' }} />
             </div>
           </div>
         )}
@@ -332,12 +334,12 @@ How can I rescue this deadline? I can:
       </div>
 
       {/* Adaptive suggested actions pills */}
-      <div className="px-4 py-1.5 bg-[#0E1B2A] border-t border-[#1C2F46]/60 flex flex-wrap gap-1.5">
+      <div className="px-5 py-2 bg-white/[0.01] border-t border-white/[0.05] flex flex-wrap gap-2">
         {getSuggestedActions().map((action, i) => (
           <button
             key={i}
             onClick={() => handleSend(action)}
-            className="px-2 py-1 bg-[#142435] hover:bg-[#20364F] border border-[#21354A] rounded-full text-[10px] text-slate-300 hover:text-[#00D4FF] transition-all font-sans cursor-pointer whitespace-nowrap"
+            className="px-3 py-1.5 bg-white/[0.02] hover:bg-[#8052ff]/15 border border-white/[0.06] hover:border-[#8052ff]/40 rounded-full text-[10px] text-slate-300 hover:text-white transition-all font-sans cursor-pointer whitespace-nowrap active:scale-[0.96]"
           >
             {action}
           </button>
@@ -345,7 +347,7 @@ How can I rescue this deadline? I can:
       </div>
 
       {/* Input Action Form */}
-      <div className="p-4 border-t border-[#1C2F46] bg-[#0E1B2A]">
+      <div className="p-5 border-t border-white/[0.05] bg-white/[0.01]">
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -358,13 +360,13 @@ How can I rescue this deadline? I can:
             type="text"
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
-            placeholder="Ask agent for help..."
-            className="w-full pl-3 pr-10 py-2.5 bg-[#142435] border border-[#21354A] rounded-lg text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-[#00D4FF] focus:ring-1 focus:ring-[#00D4FF] transition-all font-sans"
+            placeholder="Ask AI agent for strategy..."
+            className="w-full pl-4 pr-11 py-3 bg-white/[0.02] border border-white/[0.07] focus:border-[#8052ff] focus:ring-1 focus:ring-[#8052ff]/30 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none transition-all font-sans"
           />
           <button
             id="send-chat-btn"
             type="submit"
-            className="absolute right-2 p-1.5 text-slate-400 hover:text-[#00D4FF] transition-colors cursor-pointer"
+            className="absolute right-3.5 p-1.5 text-slate-400 hover:text-[#8052ff] transition-colors cursor-pointer"
           >
             <Send size={14} />
           </button>

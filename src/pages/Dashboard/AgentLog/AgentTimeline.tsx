@@ -39,44 +39,46 @@ export default function AgentTimeline({ logs, onRefresh }: AgentTimelineProps) {
   return (
     <div className="space-y-6">
       {/* Telemetry Hub Bento Stats Widget */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 bg-[#08101B]/80 border border-[#1C2F46]/60 p-4 rounded-xl">
-        <div className="space-y-1 p-2">
-          <span className="text-[9px] font-mono text-slate-500 uppercase tracking-wider block">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 bg-gradient-to-br from-[#0c0a18] via-[#050508] to-[#010103] border border-white/[0.08] p-6 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.8)] relative overflow-hidden group">
+        <div className="absolute top-0 right-0 w-32 h-32 bg-[#8052ff]/5 blur-3xl rounded-full pointer-events-none" />
+        
+        <div className="space-y-1.5 p-1">
+          <span className="text-[9px] font-mono text-slate-500 uppercase tracking-widest block font-bold">
             Agent Actions
           </span>
           <div className="flex items-center gap-1.5">
-            <Brain size={14} className="text-[#7B61FF]" />
-            <span className="text-lg font-space font-bold text-slate-200">
+            <Brain size={14} className="text-[#8052ff]" />
+            <span className="text-xl font-space font-semibold text-white tracking-tight">
               {agentInitiatedLogs.length} Decisions
             </span>
           </div>
           <span className="text-[10px] text-slate-400 block leading-relaxed font-sans">
-            Total active autonomous interventions.
+            Active autonomous interventions registered by agent engines.
           </span>
         </div>
 
-        <div className="space-y-1 p-2 border-t sm:border-t-0 sm:border-l border-slate-800/80 sm:pl-4">
-          <span className="text-[9px] font-mono text-slate-500 uppercase tracking-wider block">
+        <div className="space-y-1.5 p-1 border-t sm:border-t-0 sm:border-l border-white/[0.06] sm:pl-6">
+          <span className="text-[9px] font-mono text-slate-500 uppercase tracking-widest block font-bold">
             Acceptance Rate
           </span>
           <div className="flex items-center gap-1.5">
-            <ThumbsUp size={14} className="text-emerald-400" />
-            <span className="text-lg font-space font-bold text-slate-200">
+            <ThumbsUp size={14} className="text-[#00E676]" />
+            <span className="text-xl font-space font-semibold text-white tracking-tight">
               {acceptanceRate}% Align
             </span>
           </div>
           <span className="text-[10px] text-slate-400 block leading-relaxed font-sans">
-            User alignment with autonomous recommendations.
+            User alignment ratio with our automated system alerts.
           </span>
         </div>
 
-        <div className="space-y-1 p-2 border-t sm:border-t-0 sm:border-l border-slate-800/80 sm:pl-4">
-          <span className="text-[9px] font-mono text-slate-500 uppercase tracking-wider block">
+        <div className="space-y-1.5 p-1 border-t sm:border-t-0 sm:border-l border-white/[0.06] sm:pl-6">
+          <span className="text-[9px] font-mono text-slate-500 uppercase tracking-widest block font-bold">
             Reinforcement Loop
           </span>
           <div className="flex items-center gap-1.5">
             <HelpCircle size={14} className="text-[#00D4FF]" />
-            <span className="text-lg font-space font-bold text-slate-200">
+            <span className="text-xl font-space font-semibold text-white tracking-tight">
               {totalResponded} Votes
             </span>
           </div>
@@ -88,7 +90,7 @@ export default function AgentTimeline({ logs, onRefresh }: AgentTimelineProps) {
 
       <div className="relative pl-8 space-y-6">
         {/* Vertical Timeline Thread */}
-        <div className="absolute left-3.5 top-2 bottom-2 w-0.5 bg-gradient-to-b from-[#7B61FF] via-[#00D4FF] to-slate-800" />
+        <div className="absolute left-3.5 top-2.5 bottom-2.5 w-[2px] bg-gradient-to-b from-[#8052ff] via-[#00D4FF] to-white/[0.03]" />
         
         {logs.map((log) => (
           <AgentLogCard key={log.id} log={log} onRefresh={onRefresh} />

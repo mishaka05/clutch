@@ -7,6 +7,7 @@ import React, { useState } from 'react';
 import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Clock, Flame, Shield, ArrowLeft, Trash2, Plus, X, Check } from 'lucide-react';
 import { Task, AgentLog } from '../../types';
 import { firebaseService } from '../../services/firebase';
+import Button from '../../components/Button';
 
 interface CalendarViewProps {
   tasks: Task[];
@@ -286,20 +287,20 @@ export default function CalendarView({ tasks, logs, onSelectTask, onRefresh }: C
                     className={`min-h-[70px] md:min-h-[105px] p-1 md:p-2 border rounded-xl flex flex-col justify-between transition-all cursor-pointer relative group ${
                       isCurrentMonth ? 'bg-[#07111C]/60' : 'bg-transparent opacity-25'
                     } ${
-                      isToday ? 'border-[#00D4FF] bg-[#00D4FF]/5 shadow-[0_0_10px_rgba(0,212,255,0.1)]' : 'border-[#1C2F46]/60 hover:border-slate-600'
+                      isToday ? 'border-[#38BDF8] bg-[#38BDF8]/5 shadow-[0_0_10px_rgba(56,189,248,0.1)]' : 'border-[#1C2F46]/60 hover:border-slate-600'
                     } ${
-                      isSelected ? 'ring-1 ring-[#7B61FF] border-[#7B61FF] bg-[#7B61FF]/5' : ''
+                      isSelected ? 'ring-1 ring-[#8B5CF6] border-[#8B5CF6] bg-[#8B5CF6]/5' : ''
                     }`}
                   >
                     {/* Day number */}
                     <div className="flex justify-between items-start">
                       <span className={`text-xs font-mono font-bold ${
-                        isToday ? 'text-[#00D4FF]' : isCurrentMonth ? 'text-slate-300' : 'text-slate-500'
+                        isToday ? 'text-[#38BDF8]' : isCurrentMonth ? 'text-slate-300' : 'text-slate-500'
                       }`}>
                         {date.getDate()}
                       </span>
                       {dayEvents.length > 0 && (
-                        <span className="w-1.5 h-1.5 rounded-full bg-[#7B61FF] animate-pulse md:hidden" />
+                        <span className="w-1.5 h-1.5 rounded-full bg-[#8B5CF6] animate-pulse md:hidden" />
                       )}
                     </div>
 
@@ -318,7 +319,7 @@ export default function CalendarView({ tasks, logs, onSelectTask, onRefresh }: C
                             }}
                             className={`text-[9px] font-sans font-medium px-1.5 py-0.5 rounded truncate border leading-tight ${
                               isFocus 
-                                ? 'bg-[#7B61FF]/10 border-[#7B61FF]/30 text-[#7B61FF] hover:bg-[#7B61FF]/25' 
+                                ? 'bg-[#8B5CF6]/10 border-[#8B5CF6]/30 text-[#8B5CF6] hover:bg-[#8B5CF6]/25' 
                                 : riskAttr?.bg || ''
                             }`}
                             title={evt.title}
@@ -351,14 +352,14 @@ export default function CalendarView({ tasks, logs, onSelectTask, onRefresh }: C
                     key={idx}
                     onClick={() => setSelectedDayEventsDate(date)}
                     className={`min-h-[160px] md:min-h-[220px] p-2 border rounded-xl flex flex-col justify-between transition-all cursor-pointer relative ${
-                      isToday ? 'border-[#00D4FF] bg-[#00D4FF]/5 shadow-[0_0_10px_rgba(0,212,255,0.1)]' : 'border-[#1C2F46]/60 hover:border-slate-600'
+                      isToday ? 'border-[#38BDF8] bg-[#38BDF8]/5 shadow-[0_0_10px_rgba(56,189,248,0.1)]' : 'border-[#1C2F46]/60 hover:border-slate-600'
                     } ${
-                      isSelected ? 'ring-1 ring-[#7B61FF] border-[#7B61FF] bg-[#7B61FF]/5' : ''
+                      isSelected ? 'ring-1 ring-[#8B5CF6] border-[#8B5CF6] bg-[#8B5CF6]/5' : ''
                     }`}
                   >
                     <div className="flex flex-col">
                       <span className={`text-xs font-mono font-bold ${
-                        isToday ? 'text-[#00D4FF]' : 'text-slate-300'
+                        isToday ? 'text-[#38BDF8]' : 'text-slate-300'
                       }`}>
                         {date.getDate()}
                       </span>
@@ -381,7 +382,7 @@ export default function CalendarView({ tasks, logs, onSelectTask, onRefresh }: C
                             }}
                             className={`text-[9px] font-sans font-medium px-1.5 py-1 rounded border leading-tight break-words flex flex-col gap-0.5 ${
                               isFocus 
-                                ? 'bg-[#7B61FF]/10 border-[#7B61FF]/30 text-[#7B61FF] hover:bg-[#7B61FF]/25' 
+                                ? 'bg-[#8B5CF6]/10 border-[#8B5CF6]/30 text-[#8B5CF6] hover:bg-[#8B5CF6]/25' 
                                 : riskAttr?.bg || ''
                             }`}
                             title={evt.title}
@@ -424,7 +425,7 @@ export default function CalendarView({ tasks, logs, onSelectTask, onRefresh }: C
               </p>
             </div>
             {!showAddForm && (
-              <button
+              <Button
                 onClick={() => {
                   setShowAddForm(true);
                   const active = tasks.filter(t => t.status === 'active');
@@ -434,12 +435,14 @@ export default function CalendarView({ tasks, logs, onSelectTask, onRefresh }: C
                     setSelectedTaskId('custom');
                   }
                 }}
-                className="flex items-center gap-1 px-2 py-1 bg-[#7B61FF]/10 border border-[#7B61FF]/30 hover:border-[#7B61FF]/60 text-[#7B61FF] hover:text-white rounded-lg text-[10px] font-mono font-bold uppercase tracking-wider transition-all cursor-pointer shrink-0"
+                variant="secondary"
+                size="sm"
+                className="shrink-0"
                 title="Schedule a focus block"
               >
                 <Plus size={11} />
                 <span>Add Block</span>
-              </button>
+              </Button>
             )}
           </div>
 
@@ -526,7 +529,7 @@ export default function CalendarView({ tasks, logs, onSelectTask, onRefresh }: C
 
                 {/* Confirm buttons */}
                 <div className="flex gap-2 pt-1">
-                  <button
+                  <Button
                     onClick={async () => {
                       try {
                         let finalTitle = '';
@@ -583,16 +586,19 @@ export default function CalendarView({ tasks, logs, onSelectTask, onRefresh }: C
                         console.error('Failed to manually add calendar block:', e);
                       }
                     }}
-                    className="flex-1 py-1.5 bg-[#00D4FF] hover:bg-[#00B4DF] text-[#0D1B2A] font-space font-bold rounded-lg text-xs uppercase tracking-wider transition-all cursor-pointer text-center"
+                    variant="primary"
+                    size="sm"
+                    className="flex-1 text-center"
                   >
                     Confirm Add
-                  </button>
-                  <button
+                  </Button>
+                  <Button
                     onClick={() => setShowAddForm(false)}
-                    className="px-3 py-1.5 bg-[#14263B] hover:bg-[#1C2F46] text-slate-300 font-space font-bold rounded-lg text-xs uppercase tracking-wider transition-all cursor-pointer"
+                    variant="ghost"
+                    size="sm"
                   >
                     Cancel
-                  </button>
+                  </Button>
                 </div>
               </div>
             </div>
@@ -616,7 +622,7 @@ export default function CalendarView({ tasks, logs, onSelectTask, onRefresh }: C
                     }}
                     className={`p-3.5 rounded-xl border cursor-pointer transition-all duration-300 hover:scale-[1.01] relative overflow-hidden ${
                       isFocus 
-                        ? 'bg-[#7B61FF]/5 border-[#7B61FF]/30 hover:border-[#7B61FF]/60 shadow-[0_0_15px_rgba(123,97,255,0.05)]' 
+                        ? 'bg-[#8B5CF6]/5 border-[#8B5CF6]/30 hover:border-[#8B5CF6]/60 shadow-[0_0_15px_rgba(139,92,246,0.05)]' 
                         : 'bg-[#0D1B2A] border-[#1C2F46] hover:border-slate-500'
                     }`}
                   >
@@ -660,8 +666,8 @@ export default function CalendarView({ tasks, logs, onSelectTask, onRefresh }: C
                     <div className="flex justify-between items-start gap-2 mb-2">
                       <span className={`text-[9px] font-mono font-bold tracking-widest uppercase px-2 py-0.5 rounded border ${
                         isFocus 
-                          ? 'text-[#7B61FF] bg-[#7B61FF]/10 border-[#7B61FF]/20' 
-                          : 'text-[#FF3B5C] bg-[#FF3B5C]/10 border-[#FF3B5C]/20'
+                          ? 'text-[#8B5CF6] bg-[#8B5CF6]/10 border-[#8B5CF6]/20' 
+                          : 'text-[#FF6B6B] bg-[#FF6B6B]/10 border-[#FF6B6B]/20'
                       }`}>
                         {isFocus ? 'Focus Block' : 'Task Deadline'}
                       </span>
@@ -684,19 +690,19 @@ export default function CalendarView({ tasks, logs, onSelectTask, onRefresh }: C
                       </div>
                     </div>
 
-                    <h4 className="text-xs font-sans font-bold text-slate-100 mb-2 leading-snug group-hover:text-[#00D4FF] transition-colors line-clamp-2">
+                    <h4 className="text-xs font-sans font-bold text-slate-100 mb-2 leading-snug group-hover:text-[#38BDF8] transition-colors line-clamp-2">
                       {evt.task?.title || evt.title}
                     </h4>
 
                     {/* Metadata indicators */}
                     <div className="flex items-center gap-3.5 text-[10px] font-mono text-slate-400 border-t border-[#1C2F46]/50 pt-2 mt-2">
                       {isFocus ? (
-                        <div className="flex items-center gap-1 text-[#7B61FF]">
+                        <div className="flex items-center gap-1 text-[#8B5CF6]">
                           <Shield size={11} />
                           <span>Focus Session</span>
                         </div>
                       ) : (
-                        <div className="flex items-center gap-1" style={{ color: riskAttr?.dot.includes('FF3B5C') ? '#FF3B5C' : riskAttr?.dot.includes('FFB800') ? '#FFB800' : '#00E676' }}>
+                        <div className="flex items-center gap-1" style={{ color: riskAttr?.dot.includes('FF6B6B') ? '#FF6B6B' : riskAttr?.dot.includes('FBBF24') ? '#FBBF24' : '#22C55E' }}>
                           <Flame size={11} />
                           <span>{evt.riskScore}% Miss risk</span>
                         </div>
