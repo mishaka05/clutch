@@ -440,6 +440,38 @@ export default function Cosmic3DBackground({ isLoginPage = false }: Cosmic3DBack
       ctx.fillStyle = '#020106'; // Velvet dark space
       ctx.fillRect(0, 0, width, height);
 
+      // Extract clover coordinates and scale parameters for environmental ripple interaction
+      let cloverCenterX = 0;
+      let cloverCenterY = 0;
+      let cloverSVGWidth = 0;
+      let hasClover = false;
+      let minK = 0;
+      let maxK = 0;
+      let animStart = 0;
+
+      if (isLoginPage) {
+        const cloverEl = document.getElementById('clover-logo-svg');
+        if (cloverEl) {
+          const rect = cloverEl.getBoundingClientRect();
+          cloverCenterX = rect.left + rect.width / 2;
+          cloverCenterY = rect.top + rect.height / 2;
+          cloverSVGWidth = rect.width;
+          hasClover = true;
+
+          animStart = (window as any).cloverAnimationStartTime || 0;
+          if (!animStart) {
+            animStart = Date.now();
+            (window as any).cloverAnimationStartTime = animStart;
+          }
+
+          if (animStart > 0) {
+            // Each wave takes 4.4s to complete, and spawns every 1.1s
+            minK = Math.floor((now - animStart - 4400) / 1100);
+            maxK = Math.floor((now - animStart) / 1100);
+          }
+        }
+      }
+
       // Smooth mouse easing
       mouseRef.current.x += (mouseRef.current.targetX - mouseRef.current.x) * 0.08;
       mouseRef.current.y += (mouseRef.current.targetY - mouseRef.current.y) * 0.08;
@@ -473,7 +505,7 @@ export default function Cosmic3DBackground({ isLoginPage = false }: Cosmic3DBack
       const fov = 420;
 
       // Project particles to screen
-      const projected = particles.map((p) => {
+      const projected = particles.map((p, i) => {
         let tx = p.cosmicX;
         let ty = p.cosmicY;
         let tz = p.cosmicZ;
@@ -528,9 +560,67 @@ export default function Cosmic3DBackground({ isLoginPage = false }: Cosmic3DBack
         const screenX = centerX + x1 * scale;
         const screenY = centerY + y2 * scale;
 
+        // Apply subtle environmental ripple displacement
+        let dispX = 0;
+        let dispY = 0;
+
+        if (hasClover && animStart > 0) {
+          const dx = screenX - cloverCenterX;
+          const dy = screenY - cloverCenterY;
+          const distToClover = Math.sqrt(dx * dx + dy * dy);
+
+          if (distToClover > 1) {
+            const dirX = dx / distToClover;
+            const dirY = dy / distToClover;
+
+            const R_min = 15;
+            const R_max = cloverSVGWidth * 1.25;
+
+            // Stable pseudorandom parameters based on particle index 'i'
+            const rand = Math.sin(p.z * 1000 + i * 50) * 0.5 + 0.5;
+            const lag = 80 + rand * 70; // 80ms to 150ms
+            const duration = 800 + rand * 400; // 800ms to 1200ms
+            const maxDisp = 2.0 + rand * 2.0; // 2px to 4px outward drift
+
+            // Loop over active waves to accumulate displacement
+            const now = Date.now();
+            for (let k = minK; k <= maxK; k++) {
+              const spawnTime = animStart + k * 1100;
+              const age = now - spawnTime;
+              if (age >= 0 && age < 4400) {
+                // Find when this wave reaches the particle's distance
+                const val = (distToClover - R_min) / (R_max - R_min);
+                if (val >= 0 && val <= 1) {
+                  // Math.pow(val, 1 / 1.8) is the inverse of the ripple's expansion easing
+                  const age_reach = 4400 * Math.pow(val, 1 / 1.8);
+                  const t_elapsed = age - age_reach;
+
+                  const tau = t_elapsed - lag;
+                  if (tau >= 0 && tau <= duration) {
+                    const outwardDuration = duration * 0.3;
+                    const returnDuration = duration * 0.7;
+                    let env = 0;
+
+                    if (tau < outwardDuration) {
+                      const u_out = tau / outwardDuration;
+                      env = Math.sin(u_out * Math.PI / 2);
+                    } else {
+                      const u_ret = (tau - outwardDuration) / returnDuration;
+                      env = Math.pow(1 - u_ret, 2.5);
+                    }
+
+                    dispX += dirX * maxDisp * env;
+                    dispY += dirY * maxDisp * env;
+                  }
+                }
+              }
+            }
+          }
+        }
+
         return {
-          px: screenX,
-          py: screenY,
+          px: screenX + dispX,
+          py: screenY + dispY,
           scale,
           shape: p.shape,
           size: tSize * scale,

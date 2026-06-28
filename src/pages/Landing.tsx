@@ -24,6 +24,7 @@ export default function Landing({ onLoginSuccess }: LandingProps) {
 
   // Generate subtle random particle background dots
   useEffect(() => {
+    (window as any).cloverAnimationStartTime = Date.now();
     const dots = Array.from({ length: 40 }).map(() => ({
       x: Math.random() * 100,
       y: Math.random() * 100,
@@ -97,6 +98,7 @@ export default function Landing({ onLoginSuccess }: LandingProps) {
               {/* Premium Minimalist Four-Leaf Clover Core */}
               <div className="absolute flex flex-col items-center justify-center">
                 <svg
+                  id="clover-logo-svg"
                   width="100%"
                   height="100%"
                   viewBox="0 0 100 100"
@@ -115,7 +117,7 @@ export default function Landing({ onLoginSuccess }: LandingProps) {
                         stroke-opacity: 0.85;
                       }
                       100% {
-                        transform: scale(8);
+                        transform: scale(12);
                         stroke-opacity: 0;
                       }
                     }
