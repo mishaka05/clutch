@@ -29,7 +29,8 @@ import {
   where, 
   orderBy, 
   limit, 
-  writeBatch
+  writeBatch,
+  getCountFromServer
 } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 import { Task, UserProfile, AgentLog, AppNotification, SubTask } from '../types';
@@ -1459,11 +1460,64 @@ class PersistenceService {
 
     // 2. Query other local tasks from Firestore as fallback/secondary check
     try {
-      const tasksQuery = query(collection(db, 'users', uid, 'tasks'));
-      const tasksSnap = await getDocs(tasksQuery);
+      const startOfDay = new Date(eventTime);
+      startOfDay.setHours(0, 0, 0, 0);
+      const endOfRange = new Date(startOfDay);
+      endOfRange.setDate(endOfRange.getDate() + 7);
+      endOfRange.setHours(23, 59, 59, 999);
+
+      const startISO = getLocalISOString(startOfDay);
+      const endISO = getLocalISOString(endOfRange);
+
+      // Measure total tasks to compute read reduction
+      let totalTasksCount = 0;
+      try {
+        const totalCountSnap = await getCountFromServer(query(collection(db, 'users', uid, 'tasks')));
+        totalTasksCount = totalCountSnap.data().count;
+      } catch (cErr) {
+        console.warn("Could not fetch total count", cErr);
+      }
+
+      let tasksSnap;
+      let queryType: 'composite' | 'date-range-only' = 'composite';
+
+      try {
+        const compositeQuery = query(
+          collection(db, 'users', uid, 'tasks'),
+          where('status', '==', 'active'),
+          where('googleCalendarScheduledAtLocal', '>=', startISO),
+          where('googleCalendarScheduledAtLocal', '<=', endISO)
+        );
+        tasksSnap = await getDocs(compositeQuery);
+      } catch (err) {
+        this.addDiagnosticLog(`[Firestore Query] Composite index not available, falling back to single-field date range query.`, "info");
+        const fallbackQuery = query(
+          collection(db, 'users', uid, 'tasks'),
+          where('googleCalendarScheduledAtLocal', '>=', startISO),
+          where('googleCalendarScheduledAtLocal', '<=', endISO)
+        );
+        tasksSnap = await getDocs(fallbackQuery);
+        queryType = 'date-range-only';
+      }
+
+      const docReads = tasksSnap.size;
+      const reduction = totalTasksCount - docReads;
+
+      this.addDiagnosticLog(`[Firestore Query Optimization] Total tasks in collection: ${totalTasksCount}`, "info");
+      this.addDiagnosticLog(`[Firestore Query Optimization] Optimized query read ${docReads} documents (${queryType} filter).`, "success");
+      if (reduction > 0) {
+        this.addDiagnosticLog(`[Firestore Query Optimization] Saved ${reduction} unnecessary document reads (${((reduction / (totalTasksCount || 1)) * 100).toFixed(1)}% performance boost).`, "success");
+      }
+
       tasksSnap.forEach(docSnap => {
         if (docSnap.id === taskId) return; // skip self
         const t = docSnap.data() as Task;
+        
+        // Apply status filtering client-side if we fell back to date-range-only query
+        if (queryType === 'date-range-only' && t.status !== 'active') {
+          return;
+        }
+
         if (t.googleCalendarScheduledAtLocal) {
           const tStart = new Date(t.googleCalendarScheduledAtLocal);
           const tEnd = new Date(tStart.getTime() + (t.estimatedDuration || 45) * 60 * 1000);
@@ -1474,7 +1528,7 @@ class PersistenceService {
           });
         }
       });
-      this.addDiagnosticLog(`✓ Fetched ${localEvents.length} local scheduled focus slots.`, "success");
+      this.addDiagnosticLog(`✓ Loaded ${localEvents.length} local scheduled focus slots for conflict checking.`, "success");
     } catch (err: any) {
       this.addDiagnosticLog(`⚠️ Failed to load local scheduled focus slots: ${err?.message || err}`, "info");
     }
@@ -1485,11 +1539,37 @@ class PersistenceService {
     // Sort chronologically
     eventsToCheck.sort((a, b) => a.start.getTime() - b.start.getTime());
 
+    // Define helper to check if a specific time overlaps with quiet hours (10:00 PM to 7:00 AM)
+    const isTimeInQuietHours = (time: Date, durationMins: number): boolean => {
+      const start = time;
+      const end = new Date(time.getTime() + durationMins * 60 * 1000);
+      
+      const day1 = new Date(start);
+      day1.setHours(22, 0, 0, 0);
+      const day1End = new Date(start);
+      day1End.setDate(day1End.getDate() + 1);
+      day1End.setHours(7, 0, 0, 0);
+
+      const day2 = new Date(start);
+      day2.setDate(day2.getDate() - 1);
+      day2.setHours(22, 0, 0, 0);
+      const day2End = new Date(start);
+      day2End.setHours(7, 0, 0, 0);
+
+      return (start < day1End && end > day1) || (start < day2End && end > day2);
+    };
+
+    const isExplicitLateNight = !!customScheduledAt && isTimeInQuietHours(eventTime, durationMinutes);
+    if (isExplicitLateNight) {
+      this.addDiagnosticLog(`[Scheduling Agent] Explicit user request for late-night focus session detected. Quiet hours boundaries bypassed.`, "success");
+    }
+
     // 4. Resolve conflicts
     let candidateStart = new Date(eventTime);
     let conflictFoundInCurrentRun = true;
     let attempts = 0;
     const maxAttempts = 500;
+    let quietHoursAdjusted = false;
 
     let firstConflictingEvent: CalendarEventInterval | null = null;
     let conflictType: 'partial' | 'full' | null = null;
@@ -1498,6 +1578,35 @@ class PersistenceService {
       attempts++;
       conflictFoundInCurrentRun = false;
       const candidateEnd = new Date(candidateStart.getTime() + durationMs);
+
+      // Avoid automatically scheduling focus sessions between 10:00 PM and 7:00 AM (unless explicitly requested)
+      if (!isExplicitLateNight) {
+        const d1 = new Date(candidateStart);
+        d1.setHours(22, 0, 0, 0);
+        const d1End = new Date(candidateStart);
+        d1End.setDate(d1End.getDate() + 1);
+        d1End.setHours(7, 0, 0, 0);
+
+        const d2 = new Date(candidateStart);
+        d2.setDate(d2.getDate() - 1);
+        d2.setHours(22, 0, 0, 0);
+        const d2End = new Date(candidateStart);
+        d2End.setHours(7, 0, 0, 0);
+
+        if (candidateStart < d1End && candidateEnd > d1) {
+          candidateStart = d1End;
+          conflictFoundInCurrentRun = true;
+          quietHoursAdjusted = true;
+          this.addDiagnosticLog(`[Quiet Hours Control] Overlap detected with quiet hours (10:00 PM - 7:00 AM). Automatically shifting candidate to next day's active hour slot at ${d1End.toLocaleString()}.`, "info");
+          continue;
+        } else if (candidateStart < d2End && candidateEnd > d2) {
+          candidateStart = d2End;
+          conflictFoundInCurrentRun = true;
+          quietHoursAdjusted = true;
+          this.addDiagnosticLog(`[Quiet Hours Control] Overlap detected with quiet hours (10:00 PM - 7:00 AM). Automatically shifting candidate to active hour slot at ${d2End.toLocaleString()}.`, "info");
+          continue;
+        }
+      }
 
       for (const E of eventsToCheck) {
         if (E.start < candidateEnd && E.end > candidateStart) {
@@ -1534,13 +1643,31 @@ class PersistenceService {
 
     // Log the conflict detection process inside the Diagnostics Panel
     this.addDiagnosticLog(`[Conflict Detection] Requested time: ${eventTime.toLocaleString()}`, "info");
-    if (isConflictDetected && firstConflictingEvent) {
+    
+    const requestedRangeStr = formatTimeRange(eventTime, durationMinutes);
+    const resolvedRangeStr = formatTimeRange(resolvedTime, durationMinutes);
+
+    if (quietHoursAdjusted && firstConflictingEvent) {
+      const msg = `Your requested focus slot at ${requestedRangeStr} had a calendar conflict with "${firstConflictingEvent.title}" and fell within quiet hours (10:00 PM – 7:00 AM). It has been rescheduled to ${resolvedRangeStr} instead.`;
+      this.addDiagnosticLog(`[Scheduling Agent] ${msg}`, "info");
+      await this.addNotification({
+        title: '🌙 Conflict & Quiet Hours Resolved',
+        body: msg,
+        type: 'info'
+      });
+    } else if (quietHoursAdjusted) {
+      const msg = `To protect your personal downtime, your focus slot has been automatically shifted out of quiet hours (10:00 PM – 7:00 AM) to ${resolvedRangeStr}.`;
+      this.addDiagnosticLog(`[Scheduling Agent] ${msg}`, "info");
+      await this.addNotification({
+        title: '🌙 Focus Slot Shifted (Quiet Hours)',
+        body: msg,
+        type: 'info'
+      });
+    } else if (isConflictDetected && firstConflictingEvent) {
       this.addDiagnosticLog(`[Conflict Detection] Conflicting event title: "${firstConflictingEvent.title}"`, "info");
       this.addDiagnosticLog(`[Conflict Detection] Conflict type: ${conflictType === 'full' ? 'Full Overlap' : 'Partial Overlap'}`, "info");
       this.addDiagnosticLog(`[Conflict Detection] Suggested alternative: ${resolvedTime.toLocaleString()}`, "info");
       
-      const requestedRangeStr = formatTimeRange(eventTime, durationMinutes);
-      const resolvedRangeStr = formatTimeRange(resolvedTime, durationMinutes);
       const conflictMessage = `${requestedRangeStr} was unavailable because another calendar event already exists. Your focus session has been scheduled for ${resolvedRangeStr} instead.`;
       
       // Dispatch clear notification
@@ -1549,6 +1676,8 @@ class PersistenceService {
         body: conflictMessage,
         type: 'info'
       });
+    } else if (isConflictDetected) {
+      this.addDiagnosticLog(`[Conflict Detection] Focus slot adjusted to ${resolvedTime.toLocaleString()}`, "info");
     } else {
       this.addDiagnosticLog(`[Conflict Detection] No conflict found. Slot is available.`, "success");
     }

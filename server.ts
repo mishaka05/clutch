@@ -6,8 +6,217 @@
 import express from 'express';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, Type } from '@google/genai';
 import dotenv from 'dotenv';
+
+// --- Structured Output Schemas & Validators ---
+
+const parseTaskSchema = {
+  type: Type.OBJECT,
+  properties: {
+    title: {
+      type: Type.STRING,
+      description: "The core task name only, clean and human-readable, excluding dates, deadlines, relative times, and priority words."
+    },
+    deadline: {
+      type: Type.STRING,
+      description: "Absolute ISO-8601 datetime string resolved using baseline anchor context reference."
+    },
+    complexity: {
+      type: Type.STRING,
+      enum: ["low", "medium", "high"],
+      description: "Complexity level of the task based on scale or cognitive load."
+    },
+    priority: {
+      type: Type.STRING,
+      enum: ["low", "medium", "high"],
+      description: "Priority level of the task based on urgency."
+    },
+    estimatedDuration: {
+      type: Type.INTEGER,
+      description: "Estimated duration of the task in minutes."
+    },
+    category: {
+      type: Type.STRING,
+      enum: ["academic", "work", "personal", "finance"],
+      description: "Category classification for the task."
+    },
+    progress: {
+      type: Type.INTEGER,
+      description: "Explicit completion percentage parsed from input (0 to 100)."
+    }
+  },
+  required: ["title", "deadline", "complexity", "priority", "estimatedDuration", "category", "progress"]
+};
+
+function validateParsedTask(data: any): boolean {
+  if (!data || typeof data !== 'object') return false;
+  if (typeof data.title !== 'string') return false;
+  if (typeof data.deadline !== 'string') return false;
+  if (data.complexity !== 'low' && data.complexity !== 'medium' && data.complexity !== 'high') return false;
+  if (data.priority !== 'low' && data.priority !== 'medium' && data.priority !== 'high') return false;
+  if (typeof data.estimatedDuration !== 'number') return false;
+  if (data.category !== 'academic' && data.category !== 'work' && data.category !== 'personal' && data.category !== 'finance') return false;
+  if (typeof data.progress !== 'number') return false;
+  return true;
+}
+
+const assessRiskSchema = {
+  type: Type.OBJECT,
+  properties: {
+    riskScore: {
+      type: Type.INTEGER,
+      description: "Risk score from 0 to 100."
+    },
+    actionType: {
+      type: Type.STRING,
+      enum: ["do_nothing", "escalate_risk", "trigger_crisis", "reschedule", "send_alert"],
+      description: "The action type recommended based on risk evaluation."
+    },
+    actionTaken: {
+      type: Type.STRING,
+      description: "Description of the action taken or recommended."
+    },
+    reason: {
+      type: Type.STRING,
+      description: "Brief reasoning behind the evaluation."
+    },
+    structuredReasoning: {
+      type: Type.OBJECT,
+      properties: {
+        metrics: {
+          type: Type.OBJECT,
+          properties: {
+            observedDeadline: { type: Type.STRING, description: "Observed deadline status or time remaining." },
+            observedProgress: { type: Type.STRING, description: "Observed progress percentage status." },
+            estimatedWorkRemaining: { type: Type.STRING, description: "Estimated workload remaining." },
+            calendarAvailability: { type: Type.STRING, description: "Availability of focus gaps in calendar." }
+          },
+          required: ["observedDeadline", "observedProgress", "estimatedWorkRemaining", "calendarAvailability"]
+        },
+        justificationText: {
+          type: Type.STRING,
+          description: "Deep justification text explaining the reasoning."
+        },
+        decisionConfidence: {
+          type: Type.INTEGER,
+          description: "Confidence level of decision from 0 to 100."
+        }
+      },
+      required: ["metrics", "justificationText", "decisionConfidence"]
+    }
+  },
+  required: ["riskScore", "actionType", "actionTaken", "reason", "structuredReasoning"]
+};
+
+function validateRiskAssessment(data: any): boolean {
+  if (!data || typeof data !== 'object') return false;
+  if (typeof data.riskScore !== 'number') return false;
+  if (typeof data.actionType !== 'string') return false;
+  if (typeof data.actionTaken !== 'string') return false;
+  if (typeof data.reason !== 'string') return false;
+  
+  const sr = data.structuredReasoning;
+  if (!sr || typeof sr !== 'object') return false;
+  if (typeof sr.justificationText !== 'string') return false;
+  if (typeof sr.decisionConfidence !== 'number') return false;
+  
+  const m = sr.metrics;
+  if (!m || typeof m !== 'object') return false;
+  if (typeof m.observedDeadline !== 'string') return false;
+  if (typeof m.observedProgress !== 'string') return false;
+  if (typeof m.estimatedWorkRemaining !== 'string') return false;
+  if (typeof m.calendarAvailability !== 'string') return false;
+  
+  return true;
+}
+
+const chatSchema = {
+  type: Type.OBJECT,
+  properties: {
+    response: {
+      type: Type.STRING,
+      description: "The actual conversational reply message to the user, supporting Markdown formatting."
+    },
+    intent: {
+      type: Type.STRING,
+      enum: ["general_conversation", "calendar_request", "academic_question", "risk_explanation", "task_planning", "productivity_advice"],
+      description: "The user's intent classified into categories."
+    },
+    actionTaken: {
+      type: Type.STRING,
+      description: "Description of the coach's primary action/direction."
+    },
+    logReason: {
+      type: Type.STRING,
+      description: "Internal rationale or reason for the logging of this interaction."
+    }
+  },
+  required: ["response", "intent", "actionTaken", "logReason"]
+};
+
+function validateChatResponse(data: any): boolean {
+  if (!data || typeof data !== 'object') return false;
+  if (typeof data.response !== 'string') return false;
+  if (typeof data.intent !== 'string') return false;
+  if (typeof data.actionTaken !== 'string') return false;
+  if (typeof data.logReason !== 'string') return false;
+  return true;
+}
+
+const subtasksSchema = {
+  type: Type.ARRAY,
+  items: {
+    type: Type.OBJECT,
+    properties: {
+      title: {
+        type: Type.STRING,
+        description: "Actionable specific micro-step title."
+      },
+      durationMinutes: {
+        type: Type.INTEGER,
+        description: "Time duration in minutes (between 15 and 30)."
+      }
+    },
+    required: ["title", "durationMinutes"]
+  },
+  description: "Exactly 6 detailed, sequential, actionable subtasks."
+};
+
+function validateSubtasks(data: any): boolean {
+  if (!Array.isArray(data)) return false;
+  if (data.length === 0) return false;
+  for (const item of data) {
+    if (!item || typeof item !== 'object') return false;
+    if (typeof item.title !== 'string') return false;
+    if (typeof item.durationMinutes !== 'number') return false;
+  }
+  return true;
+}
+
+const crisisPlanSchema = {
+  type: Type.OBJECT,
+  properties: {
+    steps: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.STRING
+      },
+      description: "Exactly 3 clear, concise, and executable survival actions specific to the task."
+    }
+  },
+  required: ["steps"]
+};
+
+function validateCrisisPlan(data: any): boolean {
+  if (!data || typeof data !== 'object') return false;
+  if (!Array.isArray(data.steps)) return false;
+  if (data.steps.length === 0) return false;
+  for (const step of data.steps) {
+    if (typeof step !== 'string') return false;
+  }
+  return true;
+}
 import { TASK_PARSER_SYSTEM_INSTRUCTION, generateTaskParserPrompt } from './src/utils/prompts/taskParser.js';
 import { RISK_ASSESSOR_SYSTEM_INSTRUCTION, generateRiskAssessorPrompt } from './src/utils/prompts/riskAssessor.js';
 import { CONTEXTUAL_CHAT_SYSTEM_INSTRUCTION, generateContextualChatPrompt } from './src/utils/prompts/contextualChat.js';
@@ -591,6 +800,7 @@ async function startServer() {
               config: {
                 systemInstruction: TASK_PARSER_SYSTEM_INSTRUCTION,
                 responseMimeType: 'application/json',
+                responseSchema: parseTaskSchema,
               }
             });
             const responseText = response.text?.trim() || '';
@@ -619,6 +829,11 @@ async function startServer() {
 
       const cleanJson = text.replace(/```json/g, '').replace(/```/g, '').trim();
       const result = JSON.parse(cleanJson);
+
+      // Validate schema before processing
+      if (!validateParsedTask(result)) {
+        throw new Error('Parsed task schema validation failed');
+      }
 
       // Validate and normalize response fields
       const parsedTask: ParsedTaskResponse = {
@@ -681,6 +896,7 @@ async function startServer() {
               config: {
                 systemInstruction: RISK_ASSESSOR_SYSTEM_INSTRUCTION,
                 responseMimeType: 'application/json',
+                responseSchema: assessRiskSchema,
               }
             });
             const responseText = response.text?.trim() || '';
@@ -709,6 +925,11 @@ async function startServer() {
 
       const cleanJson = text.replace(/```json/g, '').replace(/```/g, '').trim();
       const result = JSON.parse(cleanJson);
+
+      // Validate schema before processing
+      if (!validateRiskAssessment(result)) {
+        throw new Error('Risk assessment response schema validation failed');
+      }
 
       return res.json({
         riskScore: result.riskScore ?? 0,
@@ -817,6 +1038,7 @@ async function startServer() {
               config: {
                 systemInstruction: CONTEXTUAL_CHAT_SYSTEM_INSTRUCTION,
                 responseMimeType: 'application/json',
+                responseSchema: chatSchema,
               }
             });
             const responseText = response.text?.trim() || '';
@@ -844,6 +1066,11 @@ async function startServer() {
 
       const cleanJson = text.replace(/```json/g, '').replace(/```/g, '').trim();
       const result = JSON.parse(cleanJson);
+
+      // Validate schema before processing
+      if (!validateChatResponse(result)) {
+        throw new Error('Contextual chat response schema validation failed');
+      }
 
       return res.json({
         response: result.response,
@@ -926,12 +1153,19 @@ async function startServer() {
         config: {
           systemInstruction: MICRO_PLANNER_SYSTEM_INSTRUCTION,
           responseMimeType: 'application/json',
+          responseSchema: subtasksSchema,
         }
       });
 
       const text = response.text?.trim() || '';
       const cleanJson = text.replace(/```json/g, '').replace(/```/g, '').trim();
       const result = JSON.parse(cleanJson);
+
+      // Validate schema before processing
+      if (!validateSubtasks(result)) {
+        throw new Error('Generate subtasks response schema validation failed');
+      }
+
       return res.json({ subtasks: result, simulated: false });
 
     } catch (error: any) {
@@ -972,21 +1206,21 @@ async function startServer() {
         contents: generateCrisisCoachPrompt(title, safeRiskScore, safeHoursRemaining),
         config: {
           systemInstruction: CRISIS_COACH_SYSTEM_INSTRUCTION,
+          responseMimeType: 'application/json',
+          responseSchema: crisisPlanSchema,
         }
       });
 
-      const text = response.text || '';
-      const steps = text
-        .split(/\n+/)
-        .map((line) => line.replace(/^\d+[\.\-\)]\s*/, '').trim())
-        .filter((line) => line.length > 0)
-        .slice(0, 3);
+      const text = response.text?.trim() || '';
+      const cleanJson = text.replace(/```json/g, '').replace(/```/g, '').trim();
+      const result = JSON.parse(cleanJson);
 
-      if (steps.length === 3) {
-        return res.json({ steps, simulated: false });
+      // Validate schema before processing
+      if (!validateCrisisPlan(result)) {
+        throw new Error('Crisis plan response schema validation failed');
       }
-      const simulationResult = simulateCrisisPlan(title, safeHoursRemaining);
-      return res.json({ steps: simulationResult, simulated: true });
+
+      return res.json({ steps: result.steps.slice(0, 3), simulated: false });
 
     } catch (error: any) {
       handleGeminiError(error, 'Generate Crisis Plan');
