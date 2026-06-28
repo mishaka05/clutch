@@ -3,16 +3,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { GoogleGenAI } from '@google/genai';
 import { SubTask, TaskCategory, TaskComplexity, TaskPriority } from '../types';
-import { TASK_PARSER_SYSTEM_INSTRUCTION, generateTaskParserPrompt } from '../utils/prompts/taskParser';
-import { MICRO_PLANNER_SYSTEM_INSTRUCTION, generateMicroPlannerPrompt } from '../utils/prompts/microPlanner';
-import { CRISIS_COACH_SYSTEM_INSTRUCTION, generateCrisisCoachPrompt } from '../utils/prompts/crisisCoach';
-import { CONTEXTUAL_CHAT_SYSTEM_INSTRUCTION, generateContextualChatPrompt, ChatMessage } from '../utils/prompts/contextualChat';
 
-export type { ChatMessage };
+export interface ChatMessage {
+  role: 'user' | 'model';
+  text: string;
+}
 
-// Centrally configurable Gemini Model setting
+// Centrally configurable Gemini Model setting (for documentation/metadata)
 export const GEMINI_MODEL = 'gemini-3.5-flash';
 
 // Lightweight log deduplication mechanism to prevent console spam
@@ -24,23 +22,14 @@ function logOnce(msg: string) {
   }
 }
 
-// Helper to check if API key exists
+// Helper to check if API key exists (deprecated on client for security, returns null)
 export function getApiKey(): string | null {
-  return (import.meta as any).env.VITE_GEMINI_API_KEY || null;
+  return null;
 }
 
-// Lazy initialization of Gemini client
-let genAIInstance: GoogleGenAI | null = null;
-
-export function getGeminiClient(): GoogleGenAI | null {
-  const apiKey = getApiKey();
-  if (!apiKey) {
-    return null;
-  }
-  if (!genAIInstance) {
-    genAIInstance = new GoogleGenAI({ apiKey });
-  }
-  return genAIInstance;
+// Lazy initialization of Gemini client (deprecated on client for security)
+export function getGeminiClient(): null {
+  return null;
 }
 
 /**
@@ -103,27 +92,21 @@ export async function generateSubTasksWithAI(
   deadline: string,
   progress: number
 ): Promise<{ title: string; durationMinutes: number }[]> {
-  const apiKey = getApiKey();
-  const client = getGeminiClient();
-
-  if (!apiKey || !client) {
-    logOnce('[Gemini Subtask] Key missing. Utilizing local planner fallback.');
-    return simulateSubTaskPlanner(title);
-  }
-
   try {
-    const response = await client.models.generateContent({
-      model: GEMINI_MODEL,
-      contents: generateMicroPlannerPrompt(title, deadline, progress),
-      config: {
-        systemInstruction: MICRO_PLANNER_SYSTEM_INSTRUCTION,
-        responseMimeType: 'application/json',
-      }
+    const response = await fetch('/api/gemini/generate-subtasks', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ title, deadline, progress }),
     });
 
-    const text = response.text?.trim() || '';
-    const cleanJson = text.replace(/```json/g, '').replace(/```/g, '').trim();
-    return JSON.parse(cleanJson);
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const data = await response.json();
+    return data.subtasks;
   } catch (error) {
     logOnce('[Gemini Subtask] Utilizing local planner fallback.');
     return simulateSubTaskPlanner(title);
@@ -138,39 +121,33 @@ export async function generateCrisisPlanWithAI(
   riskScore: number,
   hoursRemaining: number
 ): Promise<string[]> {
-  const apiKey = getApiKey();
-  const client = getGeminiClient();
-
-  if (!apiKey || !client) {
-    logOnce('[Gemini Crisis Plan] Key missing. Utilizing local simulation fallback.');
-    return simulateCrisisPlan(title, hoursRemaining);
-  }
-
   try {
-    const response = await client.models.generateContent({
-      model: GEMINI_MODEL,
-      contents: generateCrisisCoachPrompt(title, riskScore, hoursRemaining),
-      config: {
-        systemInstruction: CRISIS_COACH_SYSTEM_INSTRUCTION,
-      }
+    const response = await fetch('/api/gemini/generate-crisis-plan', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ title, riskScore, hoursRemaining }),
     });
 
-    const text = response.text || '';
-    // Parse numbered list
-    const steps = text
-      .split(/\n+/)
-      .map((line) => line.replace(/^\d+[\.\-\)]\s*/, '').trim())
-      .filter((line) => line.length > 0)
-      .slice(0, 3);
-
-    if (steps.length === 3) {
-      return steps;
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
     }
-    return simulateCrisisPlan(title, hoursRemaining);
+
+    const data = await response.json();
+    return data.steps;
   } catch (error) {
     logOnce('[Gemini Crisis Plan] Utilizing local simulation fallback.');
     return simulateCrisisPlan(title, hoursRemaining);
   }
+}
+
+export interface ChatAIResponse {
+  response: string;
+  intent: string;
+  actionTaken: string;
+  logReason: string;
+  simulated?: boolean;
 }
 
 /**
@@ -182,8 +159,7 @@ export async function generateChatResponseWithAI(
   history: ChatMessage[],
   latestInput: string,
   agentLogs?: any[]
-): Promise<string> {
-  // Try server proxy first to keep API key hidden on backend
+): Promise<ChatAIResponse> {
   try {
     const response = await fetch('/api/gemini/chat', {
       method: 'POST',
@@ -195,36 +171,52 @@ export async function generateChatResponseWithAI(
 
     if (response.ok) {
       const data = await response.json();
-      return data.response;
+      return {
+        response: data.response,
+        intent: data.intent || 'general_conversation',
+        actionTaken: data.actionTaken || 'Consulted Decision Coach',
+        logReason: data.logReason || 'Discussed task status with AI Coach.',
+        simulated: data.simulated
+      };
     }
     throw new Error(`Server returned status: ${response.status}`);
   } catch (err) {
-    logOnce('[Gemini Chat API Proxy] Failed or offline. Falling back to frontend client handler.');
-  }
+    logOnce('[Gemini Chat API Proxy] Failed or offline. Falling back to local simulation.');
+    const responseText = simulateChatResponse(task, hoursRemaining, history, latestInput, agentLogs);
+    const lower = latestInput.toLowerCase();
+    let intent = 'general_conversation';
+    let actionTaken = 'Consulted Decision Coach';
+    let logReason = 'Consulted decision coach on task state.';
 
-  // Frontend client-side fallback
-  const apiKey = getApiKey();
-  const client = getGeminiClient();
+    if (lower.includes('schedule') || lower.includes('calendar') || lower.includes('slot') || lower.includes('book')) {
+      intent = 'calendar_request';
+      actionTaken = 'Recommended Calendar Adjustment';
+      logReason = 'Recommended a Google Calendar focus block to mitigate task risk.';
+    } else if (lower.includes('inner join') || lower.includes('join') || lower.includes('normalization') || lower.includes('recursion') || lower.includes('big o') || lower.includes('binary search tree') || lower.includes('explain') || lower.includes('what is')) {
+      intent = 'academic_question';
+      actionTaken = 'Explained Academic Concept';
+      logReason = 'Provided database/algorithm explanations to assist with task.';
+    } else if (lower.includes('why') || lower.includes('risk') || lower.includes('reason') || lower.includes('created') || lower.includes('increased') || lower.includes('score')) {
+      intent = 'risk_explanation';
+      actionTaken = 'Explained Risk Assessment';
+      logReason = 'Analyzed telemetry logs to explain risk assessor decisions.';
+    } else if (lower.includes('step') || lower.includes('break') || lower.includes('reduce') || lower.includes('how')) {
+      intent = 'task_planning';
+      actionTaken = 'Generated Work Breakdown';
+      logReason = 'Generated tactical task checklist steps to reduce delivery risk.';
+    } else if (lower.includes('overwhelmed') || lower.includes('procrastinat') || lower.includes('lazy') || lower.includes('stuck') || lower.includes('focus')) {
+      intent = 'productivity_advice';
+      actionTaken = 'Delivered Productivity Advice';
+      logReason = 'Delivered focus and momentum advice to help with feeling overwhelmed.';
+    }
 
-  if (!apiKey || !client) {
-    logOnce('[Gemini Chat] Key missing. Utilizing local simulation fallback.');
-    return simulateChatResponse(task, hoursRemaining, history, latestInput, agentLogs);
-  }
-
-  try {
-    const prompt = generateContextualChatPrompt(task, hoursRemaining, history, latestInput, agentLogs);
-    const response = await client.models.generateContent({
-      model: GEMINI_MODEL,
-      contents: prompt,
-      config: {
-        systemInstruction: CONTEXTUAL_CHAT_SYSTEM_INSTRUCTION,
-      }
-    });
-
-    return response.text || 'I am focused on analyzing your deadline emergency, please try again.';
-  } catch (error) {
-    logOnce('[Gemini Chat] Utilizing local simulation fallback.');
-    return simulateChatResponse(task, hoursRemaining, history, latestInput, agentLogs);
+    return {
+      response: responseText,
+      intent,
+      actionTaken,
+      logReason,
+      simulated: true
+    };
   }
 }
 
@@ -609,14 +601,17 @@ By focusing on **Step 1 ("${nextStepTitle}")** first, you will immediately incre
 
   // 4. Productivity Coaching
   if (lower.includes('overwhelmed') || lower.includes('procrastinat') || lower.includes('lazy') || lower.includes('stuck') || lower.includes('focus') || lower.includes('approach')) {
-    return `I completely understand that managing **"${taskTitle}"** can feel overwhelming, especially with a risk index of **${riskScore}%** and only **${hoursRemaining.toFixed(1)} hours** remaining.
+    let response = `I completely understand that managing **"${taskTitle}"** can feel overwhelming, especially with a risk index of **${riskScore}%** and only **${hoursRemaining.toFixed(1)} hours** remaining.
 
 Here is an immediate, actionable strategy to break the paralysis:
 1. **Pledge just 15 minutes:** Shut down all other browser tabs, set a timer for 15 minutes, and close your phone.
 2. **Work on only ONE step:** Do not worry about finishing the entire assignment. Focus 100% of your energy solely on: *"${nextStepTitle}"*.
-3. **Do not look at the final deadline** or the entire list. Just spend 15 minutes working on this single step.
+3. **Do not look at the final deadline** or the entire list. Just spend 15 minutes working on this single step.`;
 
-Would you like me to schedule a dedicated 45-minute focus slot in your Google Calendar right now to get you started? [Confirm Booking]`;
+    if (riskScore >= 80) {
+      response += `\n\nSince your task is at critical risk (**${riskScore}%**), would you like me to schedule a dedicated 45-minute focus slot in your Google Calendar right now to get you started? [Confirm Booking]`;
+    }
+    return response;
   }
 
   // Default response (engaging with task context, answering directly)

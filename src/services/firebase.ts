@@ -440,6 +440,32 @@ class PersistenceService {
     localStorage.setItem('clutch_tasks', JSON.stringify(tasks));
   }
 
+  // Chat Conversations Persistence
+  public async getTaskConversation(taskId: string): Promise<{ role: 'user' | 'model'; text: string }[]> {
+    const rawConversations = localStorage.getItem('clutch_conversations');
+    if (!rawConversations) return [];
+    try {
+      const conversations = JSON.parse(rawConversations);
+      return conversations[taskId] || [];
+    } catch {
+      return [];
+    }
+  }
+
+  public async saveTaskConversation(taskId: string, messages: { role: 'user' | 'model'; text: string }[]): Promise<void> {
+    const rawConversations = localStorage.getItem('clutch_conversations');
+    let conversations: Record<string, { role: 'user' | 'model'; text: string }[]> = {};
+    if (rawConversations) {
+      try {
+        conversations = JSON.parse(rawConversations);
+      } catch {
+        conversations = {};
+      }
+    }
+    conversations[taskId] = messages;
+    localStorage.setItem('clutch_conversations', JSON.stringify(conversations));
+  }
+
   // Agent Activity Logs CRUD
   public async getAgentLogs(): Promise<AgentLog[]> {
     const logsRaw = localStorage.getItem('clutch_logs');

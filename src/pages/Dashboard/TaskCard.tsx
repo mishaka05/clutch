@@ -7,6 +7,7 @@ import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { Clock, CheckSquare, Flame, ChevronRight } from 'lucide-react';
 import { Task } from '../../types';
+import { formatHumanFriendlyDeadline } from '../../utils/dateUtils';
 
 interface TaskCardProps {
   task: Task;
@@ -149,15 +150,21 @@ export default function TaskCard({ task, isLarge = false, onSelect, onTriggerCri
         </h3>
 
         {/* Live Countdown & Info */}
-        <div className="flex items-center gap-4 text-xs font-mono text-slate-400 mb-4">
-          <div className={`flex items-center gap-1.5 ${isUrgent ? 'text-[#FF3B5C] font-semibold' : ''}`}>
-            {isUrgent ? <Flame size={13} className="animate-pulse" /> : <Clock size={13} />}
-            <span>{timeLeft}</span>
+        <div className="flex flex-col gap-1.5 text-xs font-mono text-slate-400 mb-4">
+          <div className="flex items-center gap-4">
+            <div className={`flex items-center gap-1.5 ${isUrgent ? 'text-[#FF3B5C] font-semibold' : ''}`}>
+              {isUrgent ? <Flame size={13} className="animate-pulse" /> : <Clock size={13} />}
+              <span>{timeLeft}</span>
+            </div>
+            
+            <div className="flex items-center gap-1">
+              <CheckSquare size={13} />
+              <span>{task.completedSteps}/{task.totalSteps} steps</span>
+            </div>
           </div>
-          
-          <div className="flex items-center gap-1">
-            <CheckSquare size={13} />
-            <span>{task.completedSteps}/{task.totalSteps} steps</span>
+          <div className="text-[10px] text-slate-500 uppercase tracking-wider flex items-center gap-1">
+            <span>Deadline:</span>
+            <span className="text-slate-300 font-bold">{formatHumanFriendlyDeadline(task.deadline)}</span>
           </div>
         </div>
       </div>

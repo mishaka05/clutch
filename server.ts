@@ -11,6 +11,8 @@ import dotenv from 'dotenv';
 import { TASK_PARSER_SYSTEM_INSTRUCTION, generateTaskParserPrompt } from './src/utils/prompts/taskParser.js';
 import { RISK_ASSESSOR_SYSTEM_INSTRUCTION, generateRiskAssessorPrompt } from './src/utils/prompts/riskAssessor.js';
 import { CONTEXTUAL_CHAT_SYSTEM_INSTRUCTION, generateContextualChatPrompt } from './src/utils/prompts/contextualChat.js';
+import { MICRO_PLANNER_SYSTEM_INSTRUCTION, generateMicroPlannerPrompt } from './src/utils/prompts/microPlanner.js';
+import { CRISIS_COACH_SYSTEM_INSTRUCTION, generateCrisisCoachPrompt } from './src/utils/prompts/crisisCoach.js';
 import { calculateTaskRisk } from './src/utils/riskEngine.js';
 
 dotenv.config();
@@ -21,6 +23,65 @@ function logOnce(msg: string) {
     loggedMessages.add(msg);
     console.log(msg);
   }
+}
+
+// Simple in-memory rate limiter to prevent API abuse
+const rateLimits = new Map<string, { count: number; lastReset: number }>();
+const RATE_LIMIT_WINDOW = 60 * 1000; // 1 minute
+const MAX_REQUESTS_PER_WINDOW = 35; // Max 35 requests per minute
+
+function rateLimiter(req: express.Request, res: express.Response, next: express.NextFunction) {
+  const ip = (req.headers['x-forwarded-for'] as string) || req.ip || req.socket.remoteAddress || 'unknown';
+  const now = Date.now();
+  const limit = rateLimits.get(ip);
+
+  if (!limit) {
+    rateLimits.set(ip, { count: 1, lastReset: now });
+    return next();
+  }
+
+  if (now - limit.lastReset > RATE_LIMIT_WINDOW) {
+    limit.count = 1;
+    limit.lastReset = now;
+    return next();
+  }
+
+  limit.count++;
+  if (limit.count > MAX_REQUESTS_PER_WINDOW) {
+    return res.status(429).json({
+      error: 'Too many requests. Please cool down before retrying.',
+      retryAfterSeconds: Math.ceil((RATE_LIMIT_WINDOW - (now - limit.lastReset)) / 1000),
+    });
+  }
+
+  next();
+}
+
+// Global Gemini circuit-breaker cooldown if we encounter quota limits (HTTP 429)
+let geminiCooldownUntil = 0;
+const COOLDOWN_DURATION = 60 * 1000; // 1 minute cooldown
+
+function handleGeminiError(error: any, context: string) {
+  console.error(`[Gemini Error - ${context}]:`, error);
+  const errorMsg = String(error?.message || '').toLowerCase();
+  const isQuotaError = error?.status === 429 || 
+                       errorMsg.includes('429') || 
+                       errorMsg.includes('quota') || 
+                       errorMsg.includes('resource exhausted') ||
+                       errorMsg.includes('rate limit');
+  
+  if (isQuotaError) {
+    console.warn(`[Gemini Circuit Breaker]: Quota exceeded. Triggering ${COOLDOWN_DURATION / 1000}s cooldown.`);
+    geminiCooldownUntil = Date.now() + COOLDOWN_DURATION;
+  }
+}
+
+function isGeminiOnCooldown(): boolean {
+  if (Date.now() < geminiCooldownUntil) {
+    console.warn(`[Gemini Circuit Breaker]: Gemini is on cooldown. Using deterministic fallback.`);
+    return true;
+  }
+  return false;
 }
 
 // Define TaskComplexity & TaskCategory types (or import)
@@ -345,20 +406,67 @@ By focusing on **Step 1 ("${nextStepTitle}")** first, you will immediately incre
 
   // 4. Productivity Coaching
   if (lower.includes('overwhelmed') || lower.includes('procrastinat') || lower.includes('lazy') || lower.includes('stuck') || lower.includes('focus') || lower.includes('approach')) {
-    return `I completely understand that managing **"${taskTitle}"** can feel overwhelming, especially with a risk index of **${riskScore}%** and only **${hoursRemaining.toFixed(1)} hours** remaining.
+    let response = `I completely understand that managing **"${taskTitle}"** can feel overwhelming, especially with a risk index of **${riskScore}%** and only **${hoursRemaining.toFixed(1)} hours** remaining.
 
 Here is an immediate, actionable strategy to break the paralysis:
 1. **Pledge just 15 minutes:** Shut down all other browser tabs, set a timer for 15 minutes, and close your phone.
 2. **Work on only ONE step:** Do not worry about finishing the entire assignment. Focus 100% of your energy solely on: *"${nextStepTitle}"*.
-3. **Do not look at the final deadline** or the entire list. Just spend 15 minutes working on this single step.
+3. **Do not look at the final deadline** or the entire list. Just spend 15 minutes working on this single step.`;
 
-Would you like me to schedule a dedicated 45-minute focus slot in your Google Calendar right now to get you started? [Confirm Booking]`;
+    if (riskScore >= 80) {
+      response += `\n\nSince your task is at critical risk (**${riskScore}%**), would you like me to schedule a dedicated 45-minute focus slot in your Google Calendar right now to get you started? [Confirm Booking]`;
+    }
+    return response;
   }
 
   // Default response (engaging with task context, answering directly)
   return `Understood. For your active task **"${taskTitle}"** (${progress}% complete, ${riskScore}% risk, due in ${hoursRemaining.toFixed(1)} hours):
-
+ 
 My primary recommendation is to tackle the next micro-step on your checklist: *"${nextStepTitle}"*. Let me know if you would like me to explain any academic concepts, explain specific autonomous agent decisions, or help schedule a focus slot.`;
+}
+
+function simulateSubTaskPlanner(title: string): { title: string; durationMinutes: number }[] {
+  const genericSteps = [
+    { title: 'Deconstruct scope and document structural checklist items', durationMinutes: 20 },
+    { title: 'Configure environment, modules, and boilerplate utilities', durationMinutes: 15 },
+    { title: 'Draft core functional implementation algorithms', durationMinutes: 30 },
+    { title: 'Conduct unit inspection, state debugging, and error checking', durationMinutes: 20 },
+    { title: 'Assemble UI elements, styling variables, and layout integration', durationMinutes: 25 },
+    { title: 'Perform user journey execution audit and final deployment checks', durationMinutes: 15 },
+  ];
+
+  if (title.toLowerCase().includes('dbms') || title.toLowerCase().includes('assignment')) {
+    return [
+      { title: 'Review DBMS assignment brief & identify primary entity relations', durationMinutes: 20 },
+      { title: 'Construct Normalized SQL tables & establish schema relationships', durationMinutes: 30 },
+      { title: 'Draft complex queries using JOINs and index optimizations', durationMinutes: 25 },
+      { title: 'Write transaction isolation checks and safety test cases', durationMinutes: 20 },
+      { title: 'Design the final presentation data reports and visual charts', durationMinutes: 30 },
+      { title: 'Proofread queries, format schema, and submit file archive', durationMinutes: 15 },
+    ];
+  }
+
+  if (title.toLowerCase().includes('ml') || title.toLowerCase().includes('report')) {
+    return [
+      { title: 'Aggregate training dataset logs & verify features accuracy', durationMinutes: 20 },
+      { title: 'Analyze neural model validation plots & evaluate loss gradients', durationMinutes: 25 },
+      { title: 'Summarize architectural adjustments & parameter fine-tuning results', durationMinutes: 30 },
+      { title: 'Draft executive summary, methodology sections, and results', durationMinutes: 30 },
+      { title: 'Export visual precision-recall charts & validation figures', durationMinutes: 20 },
+      { title: 'Perform layout check, proofread report findings, and submit', durationMinutes: 15 },
+    ];
+  }
+
+  return genericSteps;
+}
+
+function simulateCrisisPlan(title: string, hoursRemaining: number): string[] {
+  const mins = Math.max(15, Math.round((hoursRemaining * 60) / 3));
+  return [
+    `Eliminate tabs, switch off your phone, and initialize a ${mins}-min focus block immediately.`,
+    `Identify the absolute core submission criteria and draft a rough version covering those exact essentials.`,
+    `Spend the final ${Math.round(mins / 2)} minutes on polishing execution logic, proofreading code, and compiling.`,
+  ];
 }
 
 async function startServer() {
@@ -368,15 +476,20 @@ async function startServer() {
   app.use(express.json());
 
   // API Route: Task Parsing using Gemini 3.5 Flash
-  app.post('/api/gemini/parse-task', async (req, res) => {
+  app.post('/api/gemini/parse-task', rateLimiter, async (req, res) => {
     const { userInput } = req.body;
     if (!userInput || typeof userInput !== 'string') {
       return res.status(400).json({ error: 'userInput string is required in request body' });
     }
 
+    // Input length sanitization to prevent prompt injection or extremely long request payloads
+    if (userInput.length > 500) {
+      return res.status(400).json({ error: 'Input is too long (maximum 500 characters).' });
+    }
+
     const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      logOnce('[Gemini Task Parse] API key missing on server. Utilizing local simulation.');
+    if (!apiKey || isGeminiOnCooldown()) {
+      logOnce('[Gemini Task Parse] API key missing or on cooldown. Utilizing local simulation.');
       const simulationResult = simulateTaskParser(userInput);
       return res.json({ ...simulationResult, simulated: true });
     }
@@ -451,22 +564,22 @@ async function startServer() {
       return res.json({ ...parsedTask, simulated: false, model: usedModel });
 
     } catch (error: any) {
-      console.log('[Gemini Task Parse] Utilizing local parser fallback.');
+      handleGeminiError(error, 'Task Parse');
       const simulationResult = simulateTaskParser(userInput);
-      return res.json({ ...simulationResult, simulated: true, error: 'Local simulation' });
+      return res.json({ ...simulationResult, simulated: true, error: 'Local simulation fallback' });
     }
   });
 
   // API Route: Risk Assessment using Gemini 3.5 Flash
-  app.post('/api/gemini/assess-risk', async (req, res) => {
+  app.post('/api/gemini/assess-risk', rateLimiter, async (req, res) => {
     const { task } = req.body;
     if (!task) {
       return res.status(400).json({ error: 'task object is required in request body' });
     }
 
     const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      logOnce('[Gemini Risk Assess] API key missing on server. Utilizing local simulation.');
+    if (!apiKey || isGeminiOnCooldown()) {
+      logOnce('[Gemini Risk Assess] API key missing or on cooldown. Utilizing local simulation.');
       const simulationResult = simulateRiskAssessment(task);
       return res.json({ ...simulationResult, simulated: true, evaluationSource: 'deterministic' });
     }
@@ -548,24 +661,62 @@ async function startServer() {
       });
 
     } catch (error: any) {
-      console.log('[Gemini Risk Assess] Utilizing local risk assessor fallback.');
+      handleGeminiError(error, 'Risk Assess');
       const simulationResult = simulateRiskAssessment(task);
-      return res.json({ ...simulationResult, simulated: true, error: 'Local simulation', evaluationSource: 'fallback' });
+      return res.json({ ...simulationResult, simulated: true, error: 'Local simulation fallback', evaluationSource: 'fallback' });
     }
   });
 
   // API Route: Contextual Chat using Gemini 3.5 Flash
-  app.post('/api/gemini/chat', async (req, res) => {
+  app.post('/api/gemini/chat', rateLimiter, async (req, res) => {
     const { task, hoursRemaining, history, latestInput, agentLogs } = req.body;
     if (!task || !latestInput) {
       return res.status(400).json({ error: 'task and latestInput are required in request body' });
     }
 
+    // Chat input length limit to prevent abuse or prompt injection
+    if (latestInput.length > 500) {
+      return res.status(400).json({ error: 'Input is too long (maximum 500 characters).' });
+    }
+
     const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      logOnce('[Gemini Chat] API key missing on server. Utilizing local simulation.');
+    if (!apiKey || isGeminiOnCooldown()) {
+      logOnce('[Gemini Chat] API key missing or on cooldown. Utilizing local simulation.');
       const responseText = simulateChatResponse(task, hoursRemaining || 24, history || [], latestInput, agentLogs || []);
-      return res.json({ response: responseText, simulated: true });
+      const lower = latestInput.toLowerCase();
+      let intent = 'general_conversation';
+      let actionTaken = 'Consulted Decision Coach';
+      let logReason = 'Consulted decision coach on task state.';
+
+      if (lower.includes('schedule') || lower.includes('calendar') || lower.includes('slot') || lower.includes('book')) {
+        intent = 'calendar_request';
+        actionTaken = 'Recommended Calendar Adjustment';
+        logReason = 'Recommended a Google Calendar focus block to mitigate task risk.';
+      } else if (lower.includes('inner join') || lower.includes('join') || lower.includes('normalization') || lower.includes('recursion') || lower.includes('big o') || lower.includes('binary search tree') || lower.includes('explain') || lower.includes('what is')) {
+        intent = 'academic_question';
+        actionTaken = 'Explained Academic Concept';
+        logReason = 'Provided conceptual database/algorithm explanations to assist with task.';
+      } else if (lower.includes('why') || lower.includes('risk') || lower.includes('reason') || lower.includes('created') || lower.includes('increased') || lower.includes('score')) {
+        intent = 'risk_explanation';
+        actionTaken = 'Explained Risk Assessment';
+        logReason = 'Analyzed telemetry logs to explain risk assessor decisions.';
+      } else if (lower.includes('step') || lower.includes('break') || lower.includes('reduce') || lower.includes('how')) {
+        intent = 'task_planning';
+        actionTaken = 'Generated Work Breakdown';
+        logReason = 'Generated tactical task checklist steps to reduce delivery risk.';
+      } else if (lower.includes('overwhelmed') || lower.includes('procrastinat') || lower.includes('lazy') || lower.includes('stuck') || lower.includes('focus')) {
+        intent = 'productivity_advice';
+        actionTaken = 'Delivered Productivity Advice';
+        logReason = 'Delivered focus and momentum advice to help with feeling overwhelmed.';
+      }
+
+      return res.json({
+        response: responseText,
+        intent,
+        actionTaken,
+        logReason,
+        simulated: true
+      });
     }
 
     try {
@@ -595,6 +746,7 @@ async function startServer() {
               contents: prompt,
               config: {
                 systemInstruction: CONTEXTUAL_CHAT_SYSTEM_INSTRUCTION,
+                responseMimeType: 'application/json',
               }
             });
             const responseText = response.text?.trim() || '';
@@ -620,15 +772,156 @@ async function startServer() {
         throw lastError || new Error('All configured Gemini models failed to return chat response.');
       }
 
+      const cleanJson = text.replace(/```json/g, '').replace(/```/g, '').trim();
+      const result = JSON.parse(cleanJson);
+
       return res.json({
-        response: text,
+        response: result.response,
+        intent: result.intent || 'general_conversation',
+        actionTaken: result.actionTaken || 'Consulted Decision Coach',
+        logReason: result.logReason || 'Discussed task status with AI Coach.',
         simulated: false
       });
 
     } catch (error: any) {
-      console.log('[Gemini Chat] Utilizing local chat response fallback.', error);
+      handleGeminiError(error, 'Chat');
       const responseText = simulateChatResponse(task, hoursRemaining || 24, history || [], latestInput, agentLogs || []);
-      return res.json({ response: responseText, simulated: true, error: 'Local simulation fallback' });
+      const lower = latestInput.toLowerCase();
+      let intent = 'general_conversation';
+      let actionTaken = 'Consulted Decision Coach';
+      let logReason = 'Consulted decision coach on task state.';
+
+      if (lower.includes('schedule') || lower.includes('calendar') || lower.includes('slot') || lower.includes('book')) {
+        intent = 'calendar_request';
+        actionTaken = 'Recommended Calendar Adjustment';
+        logReason = 'Recommended a Google Calendar focus block to mitigate task risk.';
+      } else if (lower.includes('inner join') || lower.includes('join') || lower.includes('normalization') || lower.includes('recursion') || lower.includes('big o') || lower.includes('binary search tree') || lower.includes('explain') || lower.includes('what is')) {
+        intent = 'academic_question';
+        actionTaken = 'Explained Academic Concept';
+        logReason = 'Provided conceptual database/algorithm explanations to assist with task.';
+      } else if (lower.includes('why') || lower.includes('risk') || lower.includes('reason') || lower.includes('created') || lower.includes('increased') || lower.includes('score')) {
+        intent = 'risk_explanation';
+        actionTaken = 'Explained Risk Assessment';
+        logReason = 'Analyzed telemetry logs to explain risk assessor decisions.';
+      } else if (lower.includes('step') || lower.includes('break') || lower.includes('reduce') || lower.includes('how')) {
+        intent = 'task_planning';
+        actionTaken = 'Generated Work Breakdown';
+        logReason = 'Generated tactical task checklist steps to reduce delivery risk.';
+      } else if (lower.includes('overwhelmed') || lower.includes('procrastinat') || lower.includes('lazy') || lower.includes('stuck') || lower.includes('focus')) {
+        intent = 'productivity_advice';
+        actionTaken = 'Delivered Productivity Advice';
+        logReason = 'Delivered focus and momentum advice to help with feeling overwhelmed.';
+      }
+
+      return res.json({
+        response: responseText,
+        intent,
+        actionTaken,
+        logReason,
+        simulated: true,
+        error: 'Local simulation fallback'
+      });
+    }
+  });
+
+  // API Route: Subtask Generation using Gemini 3.5 Flash
+  app.post('/api/gemini/generate-subtasks', rateLimiter, async (req, res) => {
+    const { title, deadline, progress } = req.body;
+    if (!title || typeof title !== 'string') {
+      return res.status(400).json({ error: 'title string is required in request body' });
+    }
+    const safeProgress = typeof progress === 'number' ? progress : 0;
+    const safeDeadline = typeof deadline === 'string' ? deadline : new Date().toISOString();
+
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey || isGeminiOnCooldown()) {
+      logOnce('[Gemini Subtasks] API key missing or on cooldown. Utilizing local simulation.');
+      const simulationResult = simulateSubTaskPlanner(title);
+      return res.json({ subtasks: simulationResult, simulated: true });
+    }
+
+    try {
+      const ai = new GoogleGenAI({
+        apiKey,
+        httpOptions: {
+          headers: {
+            'User-Agent': 'aistudio-build',
+          }
+        }
+      });
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-3.5-flash',
+        contents: generateMicroPlannerPrompt(title, safeDeadline, safeProgress),
+        config: {
+          systemInstruction: MICRO_PLANNER_SYSTEM_INSTRUCTION,
+          responseMimeType: 'application/json',
+        }
+      });
+
+      const text = response.text?.trim() || '';
+      const cleanJson = text.replace(/```json/g, '').replace(/```/g, '').trim();
+      const result = JSON.parse(cleanJson);
+      return res.json({ subtasks: result, simulated: false });
+
+    } catch (error: any) {
+      handleGeminiError(error, 'Generate Subtasks');
+      const simulationResult = simulateSubTaskPlanner(title);
+      return res.json({ subtasks: simulationResult, simulated: true, error: 'Fallback simulation triggered' });
+    }
+  });
+
+  // API Route: Crisis Survival Plan using Gemini 3.5 Flash
+  app.post('/api/gemini/generate-crisis-plan', rateLimiter, async (req, res) => {
+    const { title, riskScore, hoursRemaining } = req.body;
+    if (!title || typeof title !== 'string') {
+      return res.status(400).json({ error: 'title string is required in request body' });
+    }
+    const safeRiskScore = typeof riskScore === 'number' ? riskScore : 50;
+    const safeHoursRemaining = typeof hoursRemaining === 'number' ? hoursRemaining : 12;
+
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey || isGeminiOnCooldown()) {
+      logOnce('[Gemini Crisis Plan] API key missing or on cooldown. Utilizing local simulation.');
+      const simulationResult = simulateCrisisPlan(title, safeHoursRemaining);
+      return res.json({ steps: simulationResult, simulated: true });
+    }
+
+    try {
+      const ai = new GoogleGenAI({
+        apiKey,
+        httpOptions: {
+          headers: {
+            'User-Agent': 'aistudio-build',
+          }
+        }
+      });
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-3.5-flash',
+        contents: generateCrisisCoachPrompt(title, safeRiskScore, safeHoursRemaining),
+        config: {
+          systemInstruction: CRISIS_COACH_SYSTEM_INSTRUCTION,
+        }
+      });
+
+      const text = response.text || '';
+      const steps = text
+        .split(/\n+/)
+        .map((line) => line.replace(/^\d+[\.\-\)]\s*/, '').trim())
+        .filter((line) => line.length > 0)
+        .slice(0, 3);
+
+      if (steps.length === 3) {
+        return res.json({ steps, simulated: false });
+      }
+      const simulationResult = simulateCrisisPlan(title, safeHoursRemaining);
+      return res.json({ steps: simulationResult, simulated: true });
+
+    } catch (error: any) {
+      handleGeminiError(error, 'Generate Crisis Plan');
+      const simulationResult = simulateCrisisPlan(title, safeHoursRemaining);
+      return res.json({ steps: simulationResult, simulated: true, error: 'Fallback simulation triggered' });
     }
   });
 

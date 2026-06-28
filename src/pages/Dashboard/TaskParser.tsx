@@ -5,7 +5,7 @@
 
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Sparkles, Mic, AlertTriangle, Check } from 'lucide-react';
+import { Sparkles, AlertTriangle, Check } from 'lucide-react';
 import { Task, TaskCategory, TaskComplexity, TaskPriority } from '../../types';
 import { firebaseService } from '../../services/firebase';
 import { parseTaskWithAI, generateSubTasksWithAI } from '../../services/gemini';
@@ -135,11 +135,8 @@ export default function TaskParser({ onRefresh, setSelectedTask }: TaskParserPro
             value={intakeInput}
             onChange={(e) => setIntakeInput(e.target.value)}
             placeholder='e.g., "Finish DBMS assignment tomorrow 8 PM, high complexity"'
-            className="w-full pl-4 pr-12 py-3.5 bg-[#0F1D30] border border-[#1A2E46] focus:border-[#00D4FF] rounded-xl text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-[#00D4FF] transition-all font-sans text-sm shadow-md"
+            className="w-full px-4 py-3.5 bg-[#0F1D30] border border-[#1A2E46] focus:border-[#00D4FF] rounded-xl text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-[#00D4FF] transition-all font-sans text-sm shadow-md"
           />
-          <div className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500 flex items-center gap-1.5">
-            <Mic size={14} className="hover:text-[#00D4FF] transition-colors cursor-pointer" />
-          </div>
         </div>
         
         <button

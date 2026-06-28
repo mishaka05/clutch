@@ -1,0 +1,47 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper: Is the request authenticated?
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Helper: Does the authenticated user's ID match the owner ID?
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // User profile document security
+    match /users/{userId} {
+      allow read, write: if isOwner(userId);
+      
+      // Secure nested collections (tasks, logs, notifications, settings)
+      match /tasks/{taskId} {
+        allow read, write: if isOwner(userId);
+      }
+      match /logs/{logId} {
+        allow read, write: if isOwner(userId);
+      }
+      match /notifications/{notificationId} {
+        allow read, write: if isOwner(userId);
+      }
+    }
+
+    // Secure flat root-level collections by checking the document's userId attribute
+    match /tasks/{taskId} {
+      allow read, update, delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+    }
+
+    match /logs/{logId} {
+      allow read, update, delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+    }
+
+    match /notifications/{notificationId} {
+      allow read, update, delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+    }
+  }
+}

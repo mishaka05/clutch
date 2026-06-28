@@ -18,6 +18,7 @@ import ChatPanel from './Chat/ChatPanel';
 import CrisisTakeoverOverlay from './CrisisMode';
 import RiskGauge from './RiskGauge';
 import CalendarView from './CalendarView';
+import { formatHumanFriendlyDeadline } from '../../utils/dateUtils';
 
 interface DashboardProps {
   user: UserProfile;
@@ -927,6 +928,39 @@ export default function Dashboard({ user, activeTab, setActiveTab }: DashboardPr
                           <p className="text-[10px] font-mono text-slate-500">
                             Checked off {selectedTask.completedSteps} of {selectedTask.totalSteps} steps
                           </p>
+                        </div>
+                      </div>
+
+                      {/* Dynamic Task Metadata Grid with Human-Friendly Deadline */}
+                      <div className="grid grid-cols-2 gap-3 bg-[#0C1623] p-4 rounded-xl border border-[#1C2F46]/50">
+                        <div className="space-y-0.5">
+                          <span className="text-[9px] font-mono text-slate-500 uppercase tracking-widest">Category</span>
+                          <p className="text-xs font-sans font-bold text-slate-200 capitalize">
+                            {selectedTask.category === 'academic' ? '🎓 Academic' : 
+                             selectedTask.category === 'work' ? '💼 Work' :
+                             selectedTask.category === 'personal' ? '👤 Personal' : '💳 Finance'}
+                          </p>
+                        </div>
+                        <div className="space-y-0.5">
+                          <span className="text-[9px] font-mono text-slate-500 uppercase tracking-widest">Complexity</span>
+                          <p className="text-xs font-sans font-bold text-[#00D4FF] capitalize">
+                            {selectedTask.complexity} Complexity
+                          </p>
+                        </div>
+                        <div className="space-y-0.5 col-span-2 border-t border-[#1C2F46]/30 pt-2 flex justify-between items-center">
+                          <div className="space-y-0.5">
+                            <span className="text-[9px] font-mono text-slate-500 uppercase tracking-widest block">Deadline</span>
+                            <p className="text-xs font-sans font-bold text-slate-200">
+                              🕒 {formatHumanFriendlyDeadline(selectedTask.deadline)}
+                            </p>
+                          </div>
+                          <span className={`text-[9px] font-mono font-bold px-2 py-0.5 rounded uppercase ${
+                            selectedTask.priority === 'high' ? 'bg-red-500/10 text-red-400 border border-red-500/20' :
+                            selectedTask.priority === 'medium' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' :
+                            'bg-green-500/10 text-green-400 border border-green-500/20'
+                          }`}>
+                            {selectedTask.priority} priority
+                          </span>
                         </div>
                       </div>
 

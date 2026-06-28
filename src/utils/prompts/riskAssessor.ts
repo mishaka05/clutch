@@ -3,7 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { Type } from '@google/genai';
+const Type = {
+  OBJECT: 'OBJECT' as const,
+  INTEGER: 'INTEGER' as const,
+  STRING: 'STRING' as const,
+};
 
 export const RISK_ASSESSOR_SYSTEM_INSTRUCTION = `You are a professional, high-agency autonomous AI Risk Assessor Agent for Clutch.
 Your objective is to evaluate a user's task state (title, deadline, complexity, priority, estimated duration, progress, subtasks) and determine the dynamic, real-time risk of deadline failure or failure to complete.
