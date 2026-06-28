@@ -40,6 +40,8 @@ export interface Task {
   subtasks: SubTask[];
   inProgress?: boolean;
   googleCalendarEventId?: string | null;
+  googleCalendarScheduledAtUTC?: string;
+  googleCalendarScheduledAtLocal?: string;
 }
 
 export interface UserProfile {

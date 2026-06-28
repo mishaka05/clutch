@@ -9,6 +9,7 @@ import { Task } from '../../../types';
 import { generateChatResponseWithAI, ChatMessage as ChatMessageType } from '../../../services/gemini';
 import { firebaseService } from '../../../services/firebase';
 import ChatMessage from './ChatMessage';
+import { parseSchedulingExpression } from '../../../utils/dateParser';
 
 interface ChatPanelProps {
   task: Task;
@@ -141,50 +142,25 @@ How can I rescue this deadline? I can:
       let customTimeStr = '';
       let customDate: Date | undefined;
 
-      // Find the last assistant message containing "[Confirm Booking]"
       const lastModelMsg = [...messages].reverse().find(m => m.role === 'model' && m.text.includes('[Confirm Booking]'));
-      if (lastModelMsg) {
-        // Parse time from model message, e.g., "**3:00 PM**" or "3:00 PM"
-        const timeMatch = lastModelMsg.text.match(/(\d{1,2}):(\d{2})\s*(PM|AM|pm|am)/);
-        if (timeMatch) {
-          const hours = parseInt(timeMatch[1], 10);
-          const minutes = parseInt(timeMatch[2], 10);
-          const ampm = timeMatch[3].toUpperCase();
-          
-          let targetHours = hours;
-          if (ampm === 'PM' && hours < 12) targetHours += 12;
-          else if (ampm === 'AM' && hours === 12) targetHours = 0;
-          
-          const d = new Date();
-          d.setHours(targetHours, minutes, 0, 0);
-          customDate = d;
-          customTimeStr = `${hours}:${minutes.toString().padStart(2, '0')} ${ampm}`;
-        }
+      const lastUserMsg = [...messages].reverse().find(m => m.role === 'user');
+
+      let parseSourceText = '';
+      if (lastModelMsg && lastUserMsg) {
+        parseSourceText = `${lastUserMsg.text} | ${lastModelMsg.text}`;
+      } else if (lastModelMsg) {
+        parseSourceText = lastModelMsg.text;
+      } else if (lastUserMsg) {
+        parseSourceText = lastUserMsg.text;
       }
 
-      // If we couldn't parse from model message, try user message
-      if (!customDate) {
-        const lastUserMsg = [...messages].reverse().find(m => m.role === 'user');
-        if (lastUserMsg) {
-          const timeMatch = lastUserMsg.text.match(/(\d{1,2})(?::(\d{2}))?\s*(pm|am|PM|AM)/i);
-          if (timeMatch) {
-            const hours = parseInt(timeMatch[1], 10);
-            const minutes = timeMatch[2] ? parseInt(timeMatch[2], 10) : 0;
-            const ampm = timeMatch[3].toUpperCase();
-            
-            let targetHours = hours;
-            if (ampm === 'PM' && hours < 12) targetHours += 12;
-            else if (ampm === 'AM' && hours === 12) targetHours = 0;
-            
-            const d = new Date();
-            d.setHours(targetHours, minutes, 0, 0);
-            customDate = d;
-            customTimeStr = `${hours}:${minutes.toString().padStart(2, '0')} ${ampm}`;
-          }
-        }
+      if (parseSourceText) {
+        const parseResult = parseSchedulingExpression(parseSourceText);
+        customDate = parseResult.localDate;
+        customTimeStr = customDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       }
 
-      // Default fallback
+      // Default fallback if parsing completely failed
       if (!customDate) {
         const d = new Date(Date.now() + 60 * 60 * 1000);
         d.setMinutes(0, 0, 0);
@@ -192,28 +168,48 @@ How can I rescue this deadline? I can:
         customTimeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       }
 
-      await firebaseService.simulateGoogleCalendarSchedule(task.id, 45, customDate.toISOString());
+      const result = await firebaseService.simulateGoogleCalendarSchedule(task.id, 45, customDate.toISOString());
+      const resolvedDate = new Date(result.eventTime);
+      const resolvedTimeStr = resolvedDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       
+      const formatTimeRange = (start: Date, durationMins: number): string => {
+        const end = new Date(start.getTime() + durationMins * 60 * 1000);
+        const startStr = start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        const endStr = end.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        return `${startStr}–${endStr}`;
+      };
+
       const directUserConfirm: ChatMessageType = { role: 'user', text: 'Yes, schedule that slot.' };
+      
+      let directModelConfirmText = `✅ **Confirmed Booking:** I have written a **45-minute focus block** starting at **${resolvedTimeStr}** directly in your Google Calendar. Risk mitigation successfully initiated. I have recorded this in your autonomous Agent Activity Log!`;
+      
+      if (resolvedDate.getTime() !== customDate.getTime()) {
+        const requestedRange = formatTimeRange(customDate, 45);
+        const resolvedRange = formatTimeRange(resolvedDate, 45);
+        directModelConfirmText = `⚠️ **Calendar Conflict Resolved:** **${requestedRange}** was unavailable because another calendar event already exists. Your focus session has been scheduled for **${resolvedRange}** instead.\n\nI have successfully synced this block directly with Google Calendar!`;
+      }
+
       const directModelConfirm: ChatMessageType = { 
         role: 'model', 
-        text: `✅ **Confirmed Booking:** I have written a **45-minute focus block** starting at **${customTimeStr}** directly in your Google Calendar. Risk mitigation successfully initiated. I have recorded this in your autonomous Agent Activity Log!` 
+        text: directModelConfirmText
       };
       
       const finalMessages = [...messages, directUserConfirm, directModelConfirm];
       setMessages(finalMessages);
       await firebaseService.saveTaskConversation(task.id, finalMessages);
-
-      // Create Agent Log entry for the manual confirmation
-      await firebaseService.addAgentLog({
-        taskId: task.id,
-        taskTitle: task.title,
-        actionType: 'reschedule',
-        actionTaken: 'Booked Calendar Block',
-        reason: `Manually authorized a 45-minute focus slot at ${customTimeStr}.`,
-        isAgentInitiated: false,
-        agentType: 'RECOVERY_AGENT'
-      });
+ 
+       // Create Agent Log entry for the manual confirmation
+       await firebaseService.addAgentLog({
+         taskId: task.id,
+         taskTitle: task.title,
+         actionType: 'reschedule',
+         actionTaken: resolvedDate.getTime() !== customDate.getTime() ? 'Resolved Conflict & Booked' : 'Booked Calendar Block',
+         reason: resolvedDate.getTime() !== customDate.getTime()
+           ? `Resolved overlap: scheduled focus slot at ${resolvedTimeStr} instead of ${customTimeStr}.`
+           : `Manually authorized a 45-minute focus slot at ${customTimeStr}.`,
+         isAgentInitiated: false,
+         agentType: 'RECOVERY_AGENT'
+       });
 
       onRescheduleCompleted();
 

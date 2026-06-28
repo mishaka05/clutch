@@ -13,6 +13,7 @@ import HeroSection from './HeroSection';
 import TaskMatrix from './TaskMatrix';
 import TaskParser from './TaskParser';
 import DiagnosticsPanel from './AgentLog/DiagnosticsPanel';
+import CalendarDiagnostics from './AgentLog/CalendarDiagnostics';
 import AgentTimeline from './AgentLog/AgentTimeline';
 import ChatPanel from './Chat/ChatPanel';
 import CrisisTakeoverOverlay from './CrisisMode';
@@ -532,6 +533,8 @@ export default function Dashboard({ user, activeTab, setActiveTab }: DashboardPr
             </div>
 
             <DiagnosticsPanel logs={logs} onRefresh={refreshData} />
+
+            <CalendarDiagnostics />
 
             <div className="bg-[#0F1D30] border border-[#1A2E46] rounded-2xl p-6 shadow-lg space-y-6">
               <div className="flex items-start gap-3 bg-[#7B61FF]/10 p-4 rounded-xl border border-[#7B61FF]/30">

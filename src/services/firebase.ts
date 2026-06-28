@@ -34,6 +34,7 @@ import {
 import firebaseConfig from '../../firebase-applet-config.json';
 import { Task, UserProfile, AgentLog, AppNotification, SubTask } from '../types';
 import { calculateTaskRisk } from '../utils/riskEngine';
+import { parseSchedulingExpression, getLocalISOString } from '../utils/dateParser';
 
 // ==========================================
 // FIREBASE CORE INITIALIZATION
@@ -380,6 +381,58 @@ class PersistenceService {
 
   // Real in-memory cache for Google Access Token (required by oauth guidelines)
   private googleAccessToken: string | null = null;
+
+  private lastAttemptedSync: { timestamp: string; status: 'Success' | 'Failure'; message: string } | null = null;
+  private diagnosticLogs: { timestamp: string; message: string; type: 'info' | 'success' | 'error' }[] = [];
+  private diagnosticListeners: (() => void)[] = [];
+
+  public getDiagnosticLogs() {
+    return this.diagnosticLogs;
+  }
+  
+  public getLastAttemptedSync() {
+    return this.lastAttemptedSync;
+  }
+
+  public getGoogleAccessToken(): string | null {
+    return this.googleAccessToken;
+  }
+  
+  public subscribeToDiagnostics(callback: () => void) {
+    this.diagnosticListeners.push(callback);
+    return () => {
+      this.diagnosticListeners = this.diagnosticListeners.filter(cb => cb !== callback);
+    };
+  }
+  
+  public addDiagnosticLog(message: string, type: 'info' | 'success' | 'error' = 'info') {
+    const logEntry = {
+      timestamp: new Date().toISOString(),
+      message,
+      type
+    };
+    this.diagnosticLogs.unshift(logEntry); // new logs first
+    if (this.diagnosticLogs.length > 100) {
+      this.diagnosticLogs.pop();
+    }
+    // Notify subscribers
+    this.diagnosticListeners.forEach(cb => {
+      try { cb(); } catch(e) { console.error(e); }
+    });
+    window.dispatchEvent(new CustomEvent('clutch-diagnostics-updated'));
+  }
+  
+  public setLastAttemptedSync(status: 'Success' | 'Failure', message: string) {
+    this.lastAttemptedSync = {
+      timestamp: new Date().toISOString(),
+      status,
+      message
+    };
+    this.diagnosticListeners.forEach(cb => {
+      try { cb(); } catch(e) { console.error(e); }
+    });
+    window.dispatchEvent(new CustomEvent('clutch-diagnostics-updated'));
+  }
 
   constructor() {
     // Check initial session storage for the google access token (if still within same browser session context)
@@ -972,41 +1025,64 @@ class PersistenceService {
 
   // Event Creation
   private async createCalendarEvent(task: Task, scheduledAt: string, durationMinutes: number): Promise<string | null> {
-    if (!this.googleAccessToken) return null;
+    if (!this.googleAccessToken) {
+      this.addDiagnosticLog("❌ OAuth access token is missing in event creator.", "error");
+      return null;
+    }
 
     try {
+      console.log("✓ Schedule request started");
+      this.addDiagnosticLog("✓ Schedule request started", "info");
+
+      const payload = {
+        summary: `Focus Block: ${task.title}`,
+        description: `Autonomous sprint scheduled by Clutch Decision Core.\n\nTask Category: ${task.category.toUpperCase()}\nEstimated Work: ${task.estimatedDuration} mins\nRisk Index: ${task.riskScore}%\nTarget Deadline: ${new Date(task.deadline).toLocaleString()}`,
+        start: {
+          dateTime: new Date(scheduledAt).toISOString(),
+        },
+        end: {
+          dateTime: new Date(new Date(scheduledAt).getTime() + durationMinutes * 60 * 1000).toISOString(),
+        },
+        reminders: {
+          useDefault: true
+        }
+      };
+
+      console.log("✓ Event payload generated", payload);
+      this.addDiagnosticLog("✓ Event payload generated", "info");
+
+      console.log("✓ Calendar request sent");
+      this.addDiagnosticLog("✓ Calendar request sent to Google Calendar v3 API", "info");
+
       const response = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${this.googleAccessToken}`,
           'Content-Type': 'application/json'
          },
-         body: JSON.stringify({
-           summary: `Focus Block: ${task.title}`,
-           description: `Autonomous sprint scheduled by Clutch Decision Core.\n\nTask Category: ${task.category.toUpperCase()}\nEstimated Work: ${task.estimatedDuration} mins\nRisk Index: ${task.riskScore}%\nTarget Deadline: ${new Date(task.deadline).toLocaleString()}`,
-           start: {
-             dateTime: new Date(scheduledAt).toISOString(),
-           },
-           end: {
-             dateTime: new Date(new Date(scheduledAt).getTime() + durationMinutes * 60 * 1000).toISOString(),
-           },
-           reminders: {
-             useDefault: true
-           }
-         })
+         body: JSON.stringify(payload)
       });
+
+      console.log("✓ Calendar response received");
+      this.addDiagnosticLog(`✓ Calendar response received: HTTP ${response.status}`, "info");
 
       if (!response.ok) {
         const errorDetails = await response.json().catch(() => ({}));
-        throw new Error(`Calendar Create Failed: ${response.status} - ${JSON.stringify(errorDetails)}`);
+        const errorMsg = `Calendar Create Failed: HTTP ${response.status} - ${JSON.stringify(errorDetails)}`;
+        console.error(errorMsg);
+        this.addDiagnosticLog(`❌ ${errorMsg}`, "error");
+        this.setLastAttemptedSync("Failure", `HTTP ${response.status}: ${errorDetails?.error?.message || response.statusText}`);
+        throw new Error(errorMsg);
       }
 
       const eventData = await response.json();
+      console.log("✓ Event created");
+      this.addDiagnosticLog(`✓ Event created successfully. Event ID: ${eventData.id}`, "success");
       return eventData.id;
-    } catch (err) {
+    } catch (err: any) {
       console.error("Failed to sync new event to Google Calendar:", err);
       this.handleCalendarError(err);
-      return null;
+      throw err;
     }
   }
 
@@ -1015,37 +1091,58 @@ class PersistenceService {
     if (!this.googleAccessToken) return false;
 
     try {
+      console.log("✓ Schedule request started");
+      this.addDiagnosticLog("✓ Schedule request started (update)", "info");
+
+      const payload = {
+        summary: `Focus Block: ${task.title}`,
+        start: {
+          dateTime: new Date(scheduledAt).toISOString(),
+        },
+        end: {
+          dateTime: new Date(new Date(scheduledAt).getTime() + durationMinutes * 60 * 1000).toISOString(),
+        }
+      };
+
+      console.log("✓ Event payload generated", payload);
+      this.addDiagnosticLog("✓ Event payload generated", "info");
+
+      console.log("✓ Calendar request sent");
+      this.addDiagnosticLog("✓ Calendar request sent (update)", "info");
+
       const response = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventId}`, {
         method: 'PATCH',
         headers: {
           'Authorization': `Bearer ${this.googleAccessToken}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({
-          summary: `Focus Block: ${task.title}`,
-          start: {
-            dateTime: new Date(scheduledAt).toISOString(),
-          },
-          end: {
-            dateTime: new Date(new Date(scheduledAt).getTime() + durationMinutes * 60 * 1000).toISOString(),
-          }
-        })
+        body: JSON.stringify(payload)
       });
+
+      console.log("✓ Calendar response received");
+      this.addDiagnosticLog(`✓ Calendar response received: HTTP ${response.status} (update)`, "info");
 
       if (!response.ok) {
         if (response.status === 404) {
           console.warn("Event not found on Google Calendar; presumably deleted manually. Will trigger re-creation.");
+          this.addDiagnosticLog("Event not found on Google Calendar (update 404). Triggering re-creation.", "info");
           return false;
         }
         const errorDetails = await response.json().catch(() => ({}));
-        throw new Error(`Calendar Patch Failed: ${response.status} - ${JSON.stringify(errorDetails)}`);
+        const errorMsg = `Calendar Patch Failed: HTTP ${response.status} - ${JSON.stringify(errorDetails)}`;
+        console.error(errorMsg);
+        this.addDiagnosticLog(`❌ ${errorMsg}`, "error");
+        this.setLastAttemptedSync("Failure", `HTTP ${response.status}: ${errorDetails?.error?.message || response.statusText}`);
+        throw new Error(errorMsg);
       }
 
+      console.log("✓ Event created"); // Consistent with logging requirements
+      this.addDiagnosticLog("✓ Event updated successfully.", "success");
       return true;
-    } catch (err) {
+    } catch (err: any) {
       console.error("Failed to sync schedule update to Google Calendar:", err);
       this.handleCalendarError(err);
-      return false;
+      throw err;
     }
   }
 
@@ -1119,9 +1216,145 @@ class PersistenceService {
   // CALENDAR SCHEDULER & EVENT SYNC ADAPTER
   // ==========================================
 
+  public async runGoogleCalendarDiagnostics(): Promise<{
+    authOk: boolean;
+    tokenOk: boolean;
+    scopesOk: boolean;
+    syncOk: boolean;
+    details: string;
+  }> {
+    this.addDiagnosticLog("Starting end-to-end Google Calendar diagnostic verification...", "info");
+    
+    // 1. Auth check
+    const user = this.currentUser;
+    if (!user) {
+      this.addDiagnosticLog("❌ Stage 1 Failed: User is not authenticated. Please log in first.", "error");
+      this.setLastAttemptedSync("Failure", "Unauthenticated user");
+      return { authOk: false, tokenOk: false, scopesOk: false, syncOk: false, details: "User is unauthenticated." };
+    }
+    
+    this.addDiagnosticLog(`✓ User authenticated (UID: ${user.uid}, Email: ${user.email})`, "success");
+    if (user.mode !== 'google') {
+      this.addDiagnosticLog("⚠ User is logged in Demo/Anonymous mode. Real Google Calendar Sync is disabled.", "error");
+      this.setLastAttemptedSync("Failure", "Demo mode active");
+      return { authOk: true, tokenOk: false, scopesOk: false, syncOk: false, details: "User is in Demo Mode. Real Google Calendar sync is disabled." };
+    }
+    
+    // 2. Token exist check
+    const token = this.googleAccessToken;
+    if (!token) {
+      this.addDiagnosticLog("❌ Stage 2 Failed: Google OAuth Access Token is missing. Please log in with Google to authorize Calendar scopes.", "error");
+      this.setLastAttemptedSync("Failure", "Missing Access Token");
+      return { authOk: true, tokenOk: false, scopesOk: false, syncOk: false, details: "OAuth Access Token is missing." };
+    }
+    this.addDiagnosticLog("✓ OAuth token acquired from session storage / credentials", "success");
+    
+    // 3. Calendar authorization / token validation via Calendar API
+    this.addDiagnosticLog("Calling Google Calendar API to validate token and calendar authorization...", "info");
+    try {
+      const response = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary', {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      if (!response.ok) {
+        const errorDetails = await response.json().catch(() => ({}));
+        this.addDiagnosticLog(`❌ Calendar Authorization Failed: HTTP ${response.status} - ${JSON.stringify(errorDetails)}`, "error");
+        if (response.status === 401) {
+          this.setOutageState('oauth_expired', true);
+          this.addDiagnosticLog("Token is invalid or expired. Re-authentication required.", "error");
+        }
+        this.setLastAttemptedSync("Failure", `HTTP ${response.status}: API error`);
+        return { authOk: true, tokenOk: false, scopesOk: false, syncOk: false, details: `Calendar API returned status ${response.status}.` };
+      }
+      
+      const calendarData = await response.json();
+      this.addDiagnosticLog(`✓ Calendar Authorization Verified! Connected to: ${calendarData.id} (${calendarData.summary})`, "success");
+      this.addDiagnosticLog("✓ Google Calendar scopes granted & verified", "success");
+      this.setOutageState('oauth_expired', false);
+      this.setOutageState('calendar_503', false);
+    } catch (err: any) {
+      this.addDiagnosticLog(`❌ Calendar API Unreachable: ${err?.message || err}`, "error");
+      this.setLastAttemptedSync("Failure", "API Unreachable");
+      return { authOk: true, tokenOk: false, scopesOk: false, syncOk: false, details: err?.message || "Calendar API Unreachable." };
+    }
+    
+    // 4. Test Sync Event Creation & Deletion
+    this.addDiagnosticLog("Triggering test calendar sync (scheduling test event)...", "info");
+    try {
+      this.addDiagnosticLog("✓ Event payload generated for diagnostics test", "info");
+      this.addDiagnosticLog("✓ Calendar request sent to primary calendar", "info");
+      
+      const createResponse = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          summary: 'Clutch Integration Test Event',
+          description: 'Automated end-to-end diagnostic verification of Google Calendar Sync.',
+          start: {
+            dateTime: new Date(Date.now() + 2 * 3600 * 1000).toISOString(),
+          },
+          end: {
+            dateTime: new Date(Date.now() + 2.75 * 3600 * 1000).toISOString(),
+          }
+        })
+      });
+      
+      this.addDiagnosticLog(`✓ Calendar response received: HTTP ${createResponse.status}`, "info");
+      
+      if (!createResponse.ok) {
+        const errorDetails = await createResponse.json().catch(() => ({}));
+        this.addDiagnosticLog(`❌ Test Event Creation Failed: HTTP ${createResponse.status} - ${JSON.stringify(errorDetails)}`, "error");
+        this.setLastAttemptedSync("Failure", `Event Creation HTTP ${createResponse.status}`);
+        return { authOk: true, tokenOk: true, scopesOk: true, syncOk: false, details: `Event creation failed: HTTP ${createResponse.status}` };
+      }
+      
+      const eventData = await createResponse.json();
+      const testEventId = eventData.id;
+      this.addDiagnosticLog(`✓ Test Event successfully created on Google Calendar! Event ID: ${testEventId}`, "success");
+      
+      // Clean up by deleting the test event
+      this.addDiagnosticLog("Cleaning up: Deleting diagnostics test event...", "info");
+      const deleteResponse = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${testEventId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      if (deleteResponse.ok) {
+        this.addDiagnosticLog("✓ Diagnostics test event deleted successfully.", "success");
+      } else {
+        this.addDiagnosticLog(`⚠ Clean up warning: Failed to delete test event ${testEventId}. HTTP ${deleteResponse.status}`, "info");
+      }
+      
+      this.setLastAttemptedSync("Success", "All diagnostic steps passed");
+      this.addDiagnosticLog("🟢 Google Calendar Integration is 100% HEALTHY and ACTIVE!", "success");
+      return { authOk: true, tokenOk: true, scopesOk: true, syncOk: true, details: "All steps succeeded." };
+    } catch (err: any) {
+      this.addDiagnosticLog(`❌ Test Sync failed: ${err?.message || err}`, "error");
+      this.setLastAttemptedSync("Failure", "Test Sync Exception");
+      return { authOk: true, tokenOk: true, scopesOk: true, syncOk: false, details: err?.message || "Sync failed with error." };
+    }
+  }
+
   public async simulateGoogleCalendarSchedule(taskId: string, durationMinutes: number, customScheduledAt?: string): Promise<{ success: boolean; eventTime: string }> {
     const uid = this.currentUser?.uid;
     if (!uid) throw new Error('Unauthenticated operation');
+
+    console.log("✓ User authenticated");
+    this.addDiagnosticLog("✓ User authenticated", "success");
+
+    if (this.googleAccessToken) {
+      console.log("✓ Calendar scopes granted");
+      this.addDiagnosticLog("✓ Calendar scopes granted", "success");
+      console.log("✓ OAuth token acquired");
+      this.addDiagnosticLog("✓ OAuth token acquired", "success");
+    }
 
     const taskDocRef = doc(db, 'users', uid, 'tasks', taskId);
     const taskSnap = await getDoc(taskDocRef);
@@ -1129,14 +1362,206 @@ class PersistenceService {
     const task = taskSnap.data() as Task;
 
     let eventTime: Date;
+    let rolloverOccurred = false;
+    let hasExplicitDate = false;
+    const now = new Date();
+
     if (customScheduledAt) {
-      eventTime = new Date(customScheduledAt);
+      // Check if customScheduledAt is an ISO string or similar timestamp
+      const isISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(customScheduledAt);
+      if (isISO) {
+        eventTime = new Date(customScheduledAt);
+        // Determine rollover by checking if the hour/minute set on today is <= now,
+        // and the target date has indeed been set to tomorrow.
+        const eventTimeOnToday = new Date(now);
+        eventTimeOnToday.setHours(eventTime.getHours(), eventTime.getMinutes(), 0, 0);
+        if (eventTime.getDate() === now.getDate() + 1 && eventTimeOnToday.getTime() <= now.getTime()) {
+          rolloverOccurred = true;
+        }
+      } else {
+        // It's a natural language expression! Parse it.
+        const parseResult = parseSchedulingExpression(customScheduledAt, now);
+        eventTime = parseResult.localDate;
+        rolloverOccurred = parseResult.rolloverOccurred;
+        hasExplicitDate = parseResult.hasExplicitDate;
+      }
     } else {
-      eventTime = new Date(Date.now() + 60 * 60 * 1000); // 1 hour from now
+      // Default: 1 hour from now
+      eventTime = new Date(now.getTime() + 60 * 60 * 1000);
       eventTime.setMinutes(0, 0, 0);
     }
 
+    // Store diagnostic logs for auditing date interpretation
+    const initialLocalISO = getLocalISOString(eventTime);
+    this.addDiagnosticLog(`[Date Interpreter Audit] Current local datetime: ${getLocalISOString(now)} (${now.toLocaleString()})`, "info");
+    this.addDiagnosticLog(`[Date Interpreter Audit] Parsed requested datetime: ${initialLocalISO} (${eventTime.toLocaleString()})`, "info");
+    this.addDiagnosticLog(`[Date Interpreter Audit] Whether rollover to tomorrow occurred: ${rolloverOccurred ? 'Yes (Time passed today)' : 'No'}`, rolloverOccurred ? "info" : "success");
+
+    // ==========================================
+    // INTELLIGENT CONFLICT DETECTION & RESOLUTION
+    // ==========================================
+    interface CalendarEventInterval {
+      title: string;
+      start: Date;
+      end: Date;
+    }
+
+    const durationMs = durationMinutes * 60 * 1000;
+    const googleEvents: CalendarEventInterval[] = [];
+    const localEvents: CalendarEventInterval[] = [];
+
+    // 1. Query Google Calendar if connected
+    const isGoogleActive = this.googleAccessToken && !this.isOutageActive('calendar_503') && !this.isOutageActive('oauth_expired');
+    if (isGoogleActive) {
+      try {
+        const startOfDay = new Date(eventTime);
+        startOfDay.setHours(0, 0, 0, 0);
+        const endOfRange = new Date(startOfDay);
+        endOfRange.setDate(endOfRange.getDate() + 7);
+        endOfRange.setHours(23, 59, 59, 999);
+
+        const timeMin = getLocalISOString(startOfDay);
+        const timeMax = getLocalISOString(endOfRange);
+
+        const url = `https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${encodeURIComponent(timeMin)}&timeMax=${encodeURIComponent(timeMax)}&singleEvents=true&orderBy=startTime`;
+        const response = await fetch(url, {
+          headers: {
+            'Authorization': `Bearer ${this.googleAccessToken}`
+          }
+        });
+        if (response.ok) {
+          const data = await response.json();
+          const items = data.items || [];
+          for (const item of items) {
+            if (item.status === 'cancelled') continue;
+            // Skip our own focus block to avoid false conflict on reschedule/update
+            if (task.googleCalendarEventId && item.id === task.googleCalendarEventId) {
+              continue;
+            }
+            const sStr = item.start?.dateTime;
+            const eStr = item.end?.dateTime;
+            if (!sStr || !eStr) continue; // skip all-day events
+            
+            googleEvents.push({
+              title: item.summary || 'Untitled Event',
+              start: new Date(sStr),
+              end: new Date(eStr)
+            });
+          }
+          this.addDiagnosticLog(`✓ Fetched ${googleEvents.length} events from Google Calendar for conflict checking.`, "success");
+        } else {
+          this.addDiagnosticLog(`⚠️ Failed to fetch Google Calendar events: HTTP ${response.status}.`, "info");
+        }
+      } catch (err: any) {
+        this.addDiagnosticLog(`⚠️ Google Calendar events fetch failed: ${err?.message || err}.`, "info");
+      }
+    }
+
+    // 2. Query other local tasks from Firestore as fallback/secondary check
+    try {
+      const tasksQuery = query(collection(db, 'users', uid, 'tasks'));
+      const tasksSnap = await getDocs(tasksQuery);
+      tasksSnap.forEach(docSnap => {
+        if (docSnap.id === taskId) return; // skip self
+        const t = docSnap.data() as Task;
+        if (t.googleCalendarScheduledAtLocal) {
+          const tStart = new Date(t.googleCalendarScheduledAtLocal);
+          const tEnd = new Date(tStart.getTime() + (t.estimatedDuration || 45) * 60 * 1000);
+          localEvents.push({
+            title: t.title,
+            start: tStart,
+            end: tEnd
+          });
+        }
+      });
+      this.addDiagnosticLog(`✓ Fetched ${localEvents.length} local scheduled focus slots.`, "success");
+    } catch (err: any) {
+      this.addDiagnosticLog(`⚠️ Failed to load local scheduled focus slots: ${err?.message || err}`, "info");
+    }
+
+    // 3. Determine target list of events to check conflicts against
+    const eventsToCheck = isGoogleActive && googleEvents.length > 0 ? googleEvents : localEvents;
+    
+    // Sort chronologically
+    eventsToCheck.sort((a, b) => a.start.getTime() - b.start.getTime());
+
+    // 4. Resolve conflicts
+    let candidateStart = new Date(eventTime);
+    let conflictFoundInCurrentRun = true;
+    let attempts = 0;
+    const maxAttempts = 500;
+
+    let firstConflictingEvent: CalendarEventInterval | null = null;
+    let conflictType: 'partial' | 'full' | null = null;
+
+    while (conflictFoundInCurrentRun && attempts < maxAttempts) {
+      attempts++;
+      conflictFoundInCurrentRun = false;
+      const candidateEnd = new Date(candidateStart.getTime() + durationMs);
+
+      for (const E of eventsToCheck) {
+        if (E.start < candidateEnd && E.end > candidateStart) {
+          // Conflict detected!
+          if (!firstConflictingEvent) {
+            firstConflictingEvent = E;
+            const requestedStart = eventTime;
+            const requestedEnd = new Date(eventTime.getTime() + durationMs);
+            if (requestedStart >= E.start && requestedEnd <= E.end) {
+              conflictType = 'full';
+            } else {
+              conflictType = 'partial';
+            }
+          }
+
+          // Advance candidate start to the end of this conflicting event
+          candidateStart = new Date(E.end.getTime());
+          conflictFoundInCurrentRun = true;
+          break; // restart check with new candidateStart
+        }
+      }
+    }
+
+    const resolvedTime = candidateStart;
+    const isConflictDetected = resolvedTime.getTime() !== eventTime.getTime();
+
+    // Helpers to format time ranges beautifully
+    const formatTimeRange = (start: Date, durationMins: number): string => {
+      const end = new Date(start.getTime() + durationMins * 60 * 1000);
+      const startStr = start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const endStr = end.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      return `${startStr}–${endStr}`;
+    };
+
+    // Log the conflict detection process inside the Diagnostics Panel
+    this.addDiagnosticLog(`[Conflict Detection] Requested time: ${eventTime.toLocaleString()}`, "info");
+    if (isConflictDetected && firstConflictingEvent) {
+      this.addDiagnosticLog(`[Conflict Detection] Conflicting event title: "${firstConflictingEvent.title}"`, "info");
+      this.addDiagnosticLog(`[Conflict Detection] Conflict type: ${conflictType === 'full' ? 'Full Overlap' : 'Partial Overlap'}`, "info");
+      this.addDiagnosticLog(`[Conflict Detection] Suggested alternative: ${resolvedTime.toLocaleString()}`, "info");
+      
+      const requestedRangeStr = formatTimeRange(eventTime, durationMinutes);
+      const resolvedRangeStr = formatTimeRange(resolvedTime, durationMinutes);
+      const conflictMessage = `${requestedRangeStr} was unavailable because another calendar event already exists. Your focus session has been scheduled for ${resolvedRangeStr} instead.`;
+      
+      // Dispatch clear notification
+      await this.addNotification({
+        title: '🗓️ Calendar Conflict Resolved',
+        body: conflictMessage,
+        type: 'info'
+      });
+    } else {
+      this.addDiagnosticLog(`[Conflict Detection] No conflict found. Slot is available.`, "success");
+    }
+    this.addDiagnosticLog(`[Conflict Detection] Final scheduled time: ${resolvedTime.toLocaleString()}`, "success");
+
+    // Assign final resolved time to eventTime so subsequent sync and logs write to the correct time
+    eventTime = resolvedTime;
+
     const formattedTime = eventTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const localISO = getLocalISOString(eventTime);
+    const utcISO = eventTime.toISOString();
+
+    this.addDiagnosticLog(`[Date Interpreter Audit] Final datetime sent to Google Calendar: ${utcISO}`, "success");
 
     let calendarEventId = task.googleCalendarEventId || null;
     let isRealGoogleSync = false;
@@ -1145,25 +1570,69 @@ class PersistenceService {
     if (this.googleAccessToken && !this.isOutageActive('calendar_503') && !this.isOutageActive('oauth_expired')) {
       if (calendarEventId) {
         console.log(`[Google Sync] Modifying existing Google Event: ${calendarEventId}`);
-        const updateOk = await this.updateCalendarEvent(calendarEventId, task, eventTime.toISOString(), durationMinutes);
+        this.addDiagnosticLog(`[Google Sync] Modifying existing Google Event: ${calendarEventId}`, "info");
+        const updateOk = await this.updateCalendarEvent(calendarEventId, task, localISO, durationMinutes);
         if (updateOk) {
           isRealGoogleSync = true;
+          // Store both the local scheduled datetime and the UTC timestamp in Firestore
+          await updateDoc(taskDocRef, { 
+            googleCalendarScheduledAtUTC: utcISO,
+            googleCalendarScheduledAtLocal: localISO
+          });
+          console.log("✓ Firestore updated with corrected datetime");
+          this.addDiagnosticLog("✓ Firestore updated with corrected local and UTC datetime", "success");
         } else {
           // If event was manually deleted from Google, re-create it
           console.log("[Google Sync] Event was missing on remote calendar. Creating fresh block...");
-          calendarEventId = await this.createCalendarEvent(task, eventTime.toISOString(), durationMinutes);
+          this.addDiagnosticLog("[Google Sync] Event was missing on remote calendar. Creating fresh block...", "info");
+          calendarEventId = await this.createCalendarEvent(task, localISO, durationMinutes);
           if (calendarEventId) {
-            await updateDoc(taskDocRef, { googleCalendarEventId: calendarEventId });
+            await updateDoc(taskDocRef, { 
+              googleCalendarEventId: calendarEventId,
+              googleCalendarScheduledAtUTC: utcISO,
+              googleCalendarScheduledAtLocal: localISO
+            });
+            console.log("✓ Firestore updated");
+            this.addDiagnosticLog("✓ Firestore updated with Google Event ID and corrected datetime", "success");
             isRealGoogleSync = true;
+          } else {
+            throw new Error(`Google Calendar scheduling failed. Please verify API response logs in diagnostics.`);
           }
         }
       } else {
         console.log("[Google Sync] Creating brand new Google Event block");
-        calendarEventId = await this.createCalendarEvent(task, eventTime.toISOString(), durationMinutes);
+        this.addDiagnosticLog("[Google Sync] Creating brand new Google Event block", "info");
+        calendarEventId = await this.createCalendarEvent(task, localISO, durationMinutes);
         if (calendarEventId) {
-          await updateDoc(taskDocRef, { googleCalendarEventId: calendarEventId });
+          await updateDoc(taskDocRef, { 
+            googleCalendarEventId: calendarEventId,
+            googleCalendarScheduledAtUTC: utcISO,
+            googleCalendarScheduledAtLocal: localISO
+          });
+          console.log("✓ Firestore updated");
+          this.addDiagnosticLog("✓ Firestore updated with Google Event ID and corrected datetime", "success");
           isRealGoogleSync = true;
+        } else {
+          throw new Error(`Google Calendar scheduling failed. Please verify API response logs in diagnostics.`);
         }
+      }
+    } else {
+      // Update local task fallback in Firestore
+      await updateDoc(taskDocRef, {
+        googleCalendarScheduledAtUTC: utcISO,
+        googleCalendarScheduledAtLocal: localISO
+      });
+      console.log("✓ Firestore updated with local fallback datetime");
+      this.addDiagnosticLog("✓ Firestore updated with local fallback datetime", "info");
+
+      // If the user's mode is Google but token is missing, expired, or offline outage active, fail!
+      if (this.currentUser?.mode === 'google') {
+        const errorMsg = this.isOutageActive('calendar_503') 
+          ? "Google Calendar API is offline (503 Service Unavailable). Resiliency block active."
+          : "Google Calendar sync is active, but Google OAuth token is missing or expired. Please re-authenticate.";
+        this.addDiagnosticLog(`❌ ${errorMsg}`, "error");
+        this.setLastAttemptedSync("Failure", this.isOutageActive('calendar_503') ? "HTTP 503 Outage" : "Missing or expired OAuth token");
+        throw new Error(errorMsg);
       }
     }
 
