@@ -89,23 +89,23 @@ A developer-grade terminal interface with live log streaming, outage simulation 
 
 ```mermaid
 graph TB
-    subgraph Client ["Client — React / Vite / TypeScript"]
-        UI[UI Layer<br/>Tailwind CSS + Framer Motion]
-        SDK[Firebase SDK<br/>Auth + Firestore Client]
-        FALLBACK[Deterministic Fallback Engine<br/>Regex / Static Rules]
+    subgraph CLIENT ["Client — React, Vite, TypeScript"]
+        UI["UI Layer — Tailwind CSS and Framer Motion"]
+        SDK["Firebase SDK — Auth and Firestore Client"]
+        FALLBACK["Deterministic Fallback Engine"]
     end
 
-    subgraph Server ["Express Server — server.ts"]
-        PROXY[Gemini API Proxy<br/>Key secured server-side]
-        PARSE[/api/gemini/parse-task]
-        CHAT[/api/gemini/chat]
+    subgraph SERVER ["Express Server — server.ts"]
+        PROXY["Gemini API Proxy — Key Secured Server-Side"]
+        PARSE["POST api/gemini/parse-task"]
+        CHAT["POST api/gemini/chat"]
     end
 
-    subgraph Google ["Google Cloud"]
-        GEMINI[Gemini 2.5 Flash / Pro<br/>@google/genai SDK]
-        CALENDAR[Google Calendar API v3<br/>OAuth 2.0 Scopes]
-        FIRESTORE[Cloud Firestore<br/>users/{uid}/tasks, logs, notifications]
-        AUTH[Firebase Auth<br/>Google Provider + Anonymous]
+    subgraph GOOGLE ["Google Cloud"]
+        GEMINI["Gemini 2.5 Flash and Pro"]
+        CALENDAR["Google Calendar API v3 — OAuth 2.0"]
+        FIRESTORE["Cloud Firestore — tasks, logs, notifications"]
+        AUTH["Firebase Auth — Google OAuth and Anonymous"]
     end
 
     UI --> SDK
@@ -116,7 +116,7 @@ graph TB
     PROXY --> CHAT
     PARSE --> GEMINI
     CHAT --> GEMINI
-    GEMINI -->|429 / Timeout| FALLBACK
+    GEMINI -->|Rate Limit or Timeout| FALLBACK
     UI --> CALENDAR
     PROXY --> CALENDAR
 ```
@@ -135,19 +135,19 @@ sequenceDiagram
     participant CAL as Google Calendar
 
     U->>C: Natural language task input
-    C->>S: POST /api/gemini/parse-task
+    C->>S: POST api/gemini/parse-task
     S->>G: Schema-bound parsing request
-    G-->>S: Typed JSON (title, deadline, complexity)
+    G-->>S: Typed JSON title, deadline, complexity
     S-->>C: Parsed task object
-    C->>F: Write to users/{uid}/tasks/{taskId}
+    C->>F: Write to user task collection
     C->>C: Risk score calculated client-side
-    C->>CAL: GET /freebusy (check availability)
-    CAL-->>C: Existing events
-    C->>C: Conflict detection + slot shift
-    C->>CAL: POST /events (create focus block)
+    C->>CAL: GET freebusy check availability
+    CAL-->>C: Existing events returned
+    C->>C: Conflict detection and slot shift
+    C->>CAL: POST events create focus block
     CAL-->>C: Event ID returned
-    C->>F: Update task with googleCalendarEventId
-    C->>U: Toast notification + Agent log entry
+    C->>F: Update task with calendar event ID
+    C->>U: Toast notification and agent log entry
 ```
 
 ---
@@ -156,16 +156,16 @@ sequenceDiagram
 
 ```mermaid
 flowchart LR
-    A[Client Request] --> B[Express Server]
-    B --> C{Gemini Reachable?}
-    C -- Yes --> D[gemini-2.5-flash\nor gemini-2.5-pro]
-    C -- No / Timeout --> E[Deterministic\nFallback Engine]
+    A["Client Request"] --> B["Express Server"]
+    B --> C{"Gemini Reachable?"}
+    C -- Yes --> D["Gemini 2.5 Flash or Pro"]
+    C -- No or Timeout --> E["Deterministic Fallback Engine"]
     D -- HTTP 429 --> E
-    D -- Success --> F[Typed JSON Response]
+    D -- Success --> F["Typed JSON Response"]
     E --> F
-    F --> G[Client UI Update]
-    G --> H[Firestore Write]
-    G --> I[Agent Log Entry]
+    F --> G["Client UI Update"]
+    G --> H["Firestore Write"]
+    G --> I["Agent Log Entry"]
 ```
 
 ---
