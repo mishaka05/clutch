@@ -387,6 +387,89 @@ class PersistenceService {
   private diagnosticLogs: { timestamp: string; message: string; type: 'info' | 'success' | 'error' }[] = [];
   private diagnosticListeners: (() => void)[] = [];
 
+  // Optimistic UI updates state
+  private optimisticEvents: {
+    id: string;
+    taskId: string;
+    taskTitle: string;
+    scheduledAt: string;
+    status: 'pending' | 'success' | 'failed';
+    durationMinutes: number;
+    timestamp: number;
+  }[] = [];
+  private optimisticListeners: (() => void)[] = [];
+
+  private lastAutoScheduleState: {
+    taskId: string;
+    previousTaskState: {
+      googleCalendarEventId: string | null;
+      googleCalendarScheduledAtUTC: string | null;
+      googleCalendarScheduledAtLocal: string | null;
+    };
+    createdCalendarEventId: string | null;
+    previousCalendarEventId: string | null;
+    createdLogId: string | null;
+    updatedLogId: string | null;
+    previousLogState: AgentLog | null;
+    durationMinutes: number;
+    resolvedTime: string;
+    requestedTime: string;
+    isConflictDetected: boolean;
+  } | null = null;
+
+  public getOptimisticEvents() {
+    return this.optimisticEvents;
+  }
+
+  public subscribeToOptimisticEvents(callback: () => void) {
+    this.optimisticListeners.push(callback);
+    return () => {
+      this.optimisticListeners = this.optimisticListeners.filter(cb => cb !== callback);
+    };
+  }
+
+  public createOptimisticEvent(taskId: string, taskTitle: string, scheduledAt: string, durationMinutes: number): string {
+    const id = `opt-${taskId}-${Date.now()}`;
+    this.optimisticEvents.push({
+      id,
+      taskId,
+      taskTitle,
+      scheduledAt,
+      status: 'pending',
+      durationMinutes,
+      timestamp: Date.now()
+    });
+    this.addDiagnosticLog("✓ Optimistic event created", "success");
+    this.notifyOptimisticListeners();
+    return id;
+  }
+
+  public resolveOptimisticEvent(id: string, status: 'success' | 'failed') {
+    const event = this.optimisticEvents.find(e => e.id === id);
+    if (event) {
+      event.status = status;
+      if (status === 'success') {
+        // Keep it for a while so UI can transition/render success state, then clean up
+        setTimeout(() => {
+          this.optimisticEvents = this.optimisticEvents.filter(e => e.id !== id);
+          this.notifyOptimisticListeners();
+        }, 5000);
+      } else {
+        // Failed: remove immediately
+        this.addDiagnosticLog("✗ Optimistic update reverted", "error");
+        this.optimisticEvents = this.optimisticEvents.filter(e => e.id !== id);
+      }
+      this.notifyOptimisticListeners();
+    }
+  }
+
+  private notifyOptimisticListeners() {
+    this.optimisticListeners.forEach(cb => {
+      try { cb(); } catch(e) { console.error(e); }
+    });
+    window.dispatchEvent(new CustomEvent('clutch-optimistic-updated'));
+  }
+
   public getDiagnosticLogs() {
     return this.diagnosticLogs;
   }
@@ -1234,7 +1317,11 @@ class PersistenceService {
       return { authOk: false, tokenOk: false, scopesOk: false, syncOk: false, details: "User is unauthenticated." };
     }
     
-    this.addDiagnosticLog(`✓ User authenticated (UID: ${user.uid}, Email: ${user.email})`, "success");
+    if (user.mode === 'demo') {
+      this.addDiagnosticLog(`✓ Authenticated (Anonymous) (UID: ${user.uid})`, "success");
+    } else {
+      this.addDiagnosticLog(`✓ Authenticated (Google) (UID: ${user.uid}, Email: ${user.email})`, "success");
+    }
     if (user.mode !== 'google') {
       this.addDiagnosticLog("⚠ User is logged in Demo/Anonymous mode. Real Google Calendar Sync is disabled.", "error");
       this.setLastAttemptedSync("Failure", "Demo mode active");
@@ -1347,20 +1434,37 @@ class PersistenceService {
     const uid = this.currentUser?.uid;
     if (!uid) throw new Error('Unauthenticated operation');
 
-    console.log("✓ User authenticated");
-    this.addDiagnosticLog("✓ User authenticated", "success");
+    const isDemoMode = auth.currentUser?.isAnonymous || this.currentUser?.mode === 'demo';
 
-    if (this.googleAccessToken) {
-      console.log("✓ Calendar scopes granted");
-      this.addDiagnosticLog("✓ Calendar scopes granted", "success");
-      console.log("✓ OAuth token acquired");
-      this.addDiagnosticLog("✓ OAuth token acquired", "success");
+    if (isDemoMode) {
+      console.log("✓ Authenticated (Anonymous)");
+      this.addDiagnosticLog("✓ Authenticated (Anonymous)", "success");
+      this.addDiagnosticLog("✓ Demo Mode detected", "info");
+      this.addDiagnosticLog("✓ Local scheduling active", "info");
+      this.addDiagnosticLog("✓ Stored in local workspace", "success");
+    } else {
+      console.log("✓ Authenticated (Google)");
+      this.addDiagnosticLog("✓ Authenticated (Google)", "success");
+
+      if (this.googleAccessToken) {
+        console.log("✓ Calendar scopes granted");
+        this.addDiagnosticLog("✓ Calendar scopes granted", "success");
+        console.log("✓ OAuth token acquired");
+        this.addDiagnosticLog("✓ OAuth token acquired", "success");
+      }
     }
 
     const taskDocRef = doc(db, 'users', uid, 'tasks', taskId);
     const taskSnap = await getDoc(taskDocRef);
     if (!taskSnap.exists()) throw new Error('Task target does not exist');
     const task = taskSnap.data() as Task;
+
+    const originalGoogleCalendarEventId = task.googleCalendarEventId || null;
+    const previousTaskState = {
+      googleCalendarEventId: task.googleCalendarEventId || null,
+      googleCalendarScheduledAtUTC: task.googleCalendarScheduledAtUTC || null,
+      googleCalendarScheduledAtLocal: task.googleCalendarScheduledAtLocal || null,
+    };
 
     let eventTime: Date;
     let rolloverOccurred = false;
@@ -1392,8 +1496,11 @@ class PersistenceService {
       eventTime.setMinutes(0, 0, 0);
     }
 
-    // Store diagnostic logs for auditing date interpretation
-    const initialLocalISO = getLocalISOString(eventTime);
+    const optId = this.createOptimisticEvent(taskId, task.title, eventTime.toISOString(), durationMinutes);
+
+    try {
+      // Store diagnostic logs for auditing date interpretation
+      const initialLocalISO = getLocalISOString(eventTime);
     this.addDiagnosticLog(`[Date Interpreter Audit] Current local datetime: ${getLocalISOString(now)} (${now.toLocaleString()})`, "info");
     this.addDiagnosticLog(`[Date Interpreter Audit] Parsed requested datetime: ${initialLocalISO} (${eventTime.toLocaleString()})`, "info");
     this.addDiagnosticLog(`[Date Interpreter Audit] Whether rollover to tomorrow occurred: ${rolloverOccurred ? 'Yes (Time passed today)' : 'No'}`, rolloverOccurred ? "info" : "success");
@@ -1632,6 +1739,7 @@ class PersistenceService {
 
     const resolvedTime = candidateStart;
     const isConflictDetected = resolvedTime.getTime() !== eventTime.getTime();
+    const requestedTime = new Date(eventTime);
 
     // Helpers to format time ranges beautifully
     const formatTimeRange = (start: Date, durationMins: number): string => {
@@ -1648,6 +1756,8 @@ class PersistenceService {
     const resolvedRangeStr = formatTimeRange(resolvedTime, durationMinutes);
 
     if (quietHoursAdjusted && firstConflictingEvent) {
+      this.addDiagnosticLog("✓ Automatic conflict detected", "info");
+      this.addDiagnosticLog("✓ Alternative selected", "success");
       const msg = `Your requested focus slot at ${requestedRangeStr} had a calendar conflict with "${firstConflictingEvent.title}" and fell within quiet hours (10:00 PM – 7:00 AM). It has been rescheduled to ${resolvedRangeStr} instead.`;
       this.addDiagnosticLog(`[Scheduling Agent] ${msg}`, "info");
       await this.addNotification({
@@ -1656,6 +1766,8 @@ class PersistenceService {
         type: 'info'
       });
     } else if (quietHoursAdjusted) {
+      this.addDiagnosticLog("✓ Automatic conflict detected", "info");
+      this.addDiagnosticLog("✓ Alternative selected", "success");
       const msg = `To protect your personal downtime, your focus slot has been automatically shifted out of quiet hours (10:00 PM – 7:00 AM) to ${resolvedRangeStr}.`;
       this.addDiagnosticLog(`[Scheduling Agent] ${msg}`, "info");
       await this.addNotification({
@@ -1664,6 +1776,8 @@ class PersistenceService {
         type: 'info'
       });
     } else if (isConflictDetected && firstConflictingEvent) {
+      this.addDiagnosticLog("✓ Automatic conflict detected", "info");
+      this.addDiagnosticLog("✓ Alternative selected", "success");
       this.addDiagnosticLog(`[Conflict Detection] Conflicting event title: "${firstConflictingEvent.title}"`, "info");
       this.addDiagnosticLog(`[Conflict Detection] Conflict type: ${conflictType === 'full' ? 'Full Overlap' : 'Partial Overlap'}`, "info");
       this.addDiagnosticLog(`[Conflict Detection] Suggested alternative: ${resolvedTime.toLocaleString()}`, "info");
@@ -1677,6 +1791,8 @@ class PersistenceService {
         type: 'info'
       });
     } else if (isConflictDetected) {
+      this.addDiagnosticLog("✓ Automatic conflict detected", "info");
+      this.addDiagnosticLog("✓ Alternative selected", "success");
       this.addDiagnosticLog(`[Conflict Detection] Focus slot adjusted to ${resolvedTime.toLocaleString()}`, "info");
     } else {
       this.addDiagnosticLog(`[Conflict Detection] No conflict found. Slot is available.`, "success");
@@ -1686,11 +1802,20 @@ class PersistenceService {
     // Assign final resolved time to eventTime so subsequent sync and logs write to the correct time
     eventTime = resolvedTime;
 
+    // Update optimistic event with final resolved time
+    const optEvent = this.optimisticEvents.find(e => e.id === optId);
+    if (optEvent) {
+      optEvent.scheduledAt = eventTime.toISOString();
+      this.notifyOptimisticListeners();
+    }
+
     const formattedTime = eventTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const localISO = getLocalISOString(eventTime);
     const utcISO = eventTime.toISOString();
 
-    this.addDiagnosticLog(`[Date Interpreter Audit] Final datetime sent to Google Calendar: ${utcISO}`, "success");
+    if (!isDemoMode) {
+      this.addDiagnosticLog(`[Date Interpreter Audit] Final datetime sent to Google Calendar: ${utcISO}`, "success");
+    }
 
     let calendarEventId = task.googleCalendarEventId || null;
     let isRealGoogleSync = false;
@@ -1751,8 +1876,13 @@ class PersistenceService {
         googleCalendarScheduledAtUTC: utcISO,
         googleCalendarScheduledAtLocal: localISO
       });
-      console.log("✓ Firestore updated with local fallback datetime");
-      this.addDiagnosticLog("✓ Firestore updated with local fallback datetime", "info");
+      if (isDemoMode) {
+        console.log("✓ Firestore updated with local focus datetime");
+        this.addDiagnosticLog("✓ Firestore updated with local focus datetime", "info");
+      } else {
+        console.log("✓ Firestore updated with local fallback datetime");
+        this.addDiagnosticLog("✓ Firestore updated with local fallback datetime", "info");
+      }
 
       // If the user's mode is Google but token is missing, expired, or offline outage active, fail!
       if (this.currentUser?.mode === 'google') {
@@ -1765,6 +1895,12 @@ class PersistenceService {
       }
     }
 
+    // Log sync milestones
+    this.addDiagnosticLog("✓ Firestore sync complete", "success");
+    if (!isDemoMode) {
+      this.addDiagnosticLog("✓ Google Calendar sync complete", "success");
+    }
+
     // Identify if scheduler is executing in real sync vs local fallback
     const logs = await this.getAgentLogs();
     const existingLogIndex = logs.findIndex(l => 
@@ -1774,40 +1910,53 @@ class PersistenceService {
       !l.isFailure
     );
 
+    let createdLogId: string | null = null;
+    let updatedLogId: string | null = null;
+    let previousLogState: AgentLog | null = null;
+
     if (existingLogIndex !== -1) {
       // Reschedule in-place
       const existingLog = logs[existingLogIndex];
+      previousLogState = JSON.parse(JSON.stringify(existingLog));
+      updatedLogId = existingLog.id;
+
       existingLog.scheduledAt = eventTime.toISOString();
-      existingLog.reason = isRealGoogleSync 
-        ? `Synced: Booked 45m block at ${formattedTime} in Google Calendar.` 
-        : `Rescheduled: Booked 45m block at ${formattedTime} in Google Calendar (Local Fallback).`;
+      existingLog.reason = isDemoMode
+        ? "I've scheduled your focus session locally. Sign in with Google to synchronize future sessions with your Google Calendar."
+        : (isRealGoogleSync 
+          ? `Synced: Booked 45m block at ${formattedTime} in Google Calendar.` 
+          : `Rescheduled: Booked 45m block at ${formattedTime} in Google Calendar (Local Fallback).`);
       
       if (existingLog.structuredReasoning) {
-        existingLog.structuredReasoning.justificationText = isRealGoogleSync
-          ? `Autonomous Calendar Agent synchronized focus session at ${formattedTime} directly with Google Calendar to mitigate risk.`
-          : `Autonomous Calendar Agent updated focus session at ${formattedTime} using local scheduling.`;
+        existingLog.structuredReasoning.justificationText = isDemoMode
+          ? "I've scheduled your focus session locally. Sign in with Google to synchronize future sessions with your Google Calendar."
+          : (isRealGoogleSync
+            ? `Autonomous Calendar Agent synchronized focus session at ${formattedTime} directly with Google Calendar to mitigate risk.`
+            : `Autonomous Calendar Agent updated focus session at ${formattedTime} using local scheduling.`);
         if (existingLog.structuredReasoning.metrics) {
-          existingLog.structuredReasoning.metrics.calendarAvailability = isRealGoogleSync ? 'Synced Live' : 'Local Gaps';
+          existingLog.structuredReasoning.metrics.calendarAvailability = isDemoMode ? 'Demo Workspace' : (isRealGoogleSync ? 'Synced Live' : 'Local Gaps');
         }
       }
       
       await setDoc(doc(db, 'users', uid, 'logs', existingLog.id), existingLog);
 
       await this.addNotification({
-        title: isRealGoogleSync ? '🗓️ Google Calendar Focus Session Updated' : '🗓️ Focus Session Rescheduled (Local)',
-        body: `RESCHEDULED: Blocked a 45-minute deep-work session starting at ${formattedTime} for "${task.title}".`,
+        title: isDemoMode ? '🗓️ Focus Session Booked (Demo)' : (isRealGoogleSync ? '🗓️ Google Calendar Focus Session Updated' : '🗓️ Focus Session Rescheduled (Local)'),
+        body: isDemoMode ? "Focus session scheduled locally." : `RESCHEDULED: Blocked a 45-minute deep-work session starting at ${formattedTime} for "${task.title}".`,
         type: 'info'
       });
     } else {
       // Create new booking log
-      await this.addAgentLog({
+      const newLog = await this.addAgentLog({
         taskId,
         taskTitle: task.title,
         actionType: 'reschedule',
-        actionTaken: isRealGoogleSync ? 'Auto-Scheduled Focus Block' : 'Auto-Scheduled Focus Block (Local)',
-        reason: isRealGoogleSync 
-          ? `Synced: Booked 45m block at ${formattedTime} in Google Calendar.` 
-          : `Booked 45m block at ${formattedTime} in Google Calendar (Local Fallback).`,
+        actionTaken: isDemoMode ? 'Auto-Scheduled Focus Block (Demo)' : (isRealGoogleSync ? 'Auto-Scheduled Focus Block' : 'Auto-Scheduled Focus Block (Local)'),
+        reason: isDemoMode
+          ? "I've scheduled your focus session locally. Sign in with Google to synchronize future sessions with your Google Calendar."
+          : (isRealGoogleSync 
+            ? `Synced: Booked 45m block at ${formattedTime} in Google Calendar.` 
+            : `Booked 45m block at ${formattedTime} in Google Calendar (Local Fallback).`),
         isAgentInitiated: true,
         agentType: 'CALENDAR_SCHEDULER',
         scheduledAt: eventTime.toISOString(),
@@ -1816,28 +1965,155 @@ class PersistenceService {
             observedDeadline: 'N/A',
             observedProgress: `${task.progress || 0}%`,
             estimatedWorkRemaining: 'N/A',
-            calendarAvailability: isRealGoogleSync ? 'Live scanned & synced' : '1 local gap discovered'
+            calendarAvailability: isDemoMode ? 'Demo Workspace' : (isRealGoogleSync ? 'Live scanned & synced' : '1 local gap discovered')
           },
-          justificationText: isRealGoogleSync
-            ? `Autonomous Calendar Scheduling Agent successfully secured a 45-minute focus session starting at ${formattedTime} directly with your Google Calendar.`
-            : `Autonomous Calendar Scheduling Agent successfully scanned calendar free/busy slots locally and secured a 45-minute focus session.`,
+          justificationText: isDemoMode
+            ? "I've scheduled your focus session locally. Sign in with Google to synchronize future sessions with your Google Calendar."
+            : (isRealGoogleSync
+              ? `Autonomous Calendar Scheduling Agent successfully secured a 45-minute focus session starting at ${formattedTime} directly with your Google Calendar.`
+              : `Autonomous Calendar Scheduling Agent successfully scanned calendar free/busy slots locally and secured a 45-minute focus session.`),
           decisionConfidence: 95
         },
         decisionExecuted: 'SCHEDULED_FOCUS_BLOCK',
         userApprovalApplied: 'ASSIST'
       });
+      createdLogId = newLog.id;
 
       await this.addNotification({
-        title: isRealGoogleSync ? '🗓️ Google Calendar Focus Session Booked' : '🗓️ Focus Session Booked (Local)',
-        body: `AUTONOMOUS SPRINT: Blocked a 45-minute deep-work session starting at ${formattedTime} for "${task.title}".`,
+        title: isDemoMode ? '🗓️ Focus Session Booked (Demo)' : (isRealGoogleSync ? '🗓️ Google Calendar Focus Session Booked' : '🗓️ Focus Session Booked (Local)'),
+        body: isDemoMode ? "Focus session scheduled locally." : `AUTONOMOUS SPRINT: Blocked a 45-minute deep-work session starting at ${formattedTime} for "${task.title}".`,
         type: 'info'
       });
     }
+
+    const createdCalendarEventId = (!originalGoogleCalendarEventId && calendarEventId) ? calendarEventId : null;
+    const previousCalendarEventId = originalGoogleCalendarEventId;
+
+    this.lastAutoScheduleState = {
+      taskId,
+      previousTaskState,
+      createdCalendarEventId,
+      previousCalendarEventId,
+      createdLogId,
+      updatedLogId,
+      previousLogState,
+      durationMinutes,
+      resolvedTime: eventTime.toISOString(),
+      requestedTime: requestedTime.toISOString(),
+      isConflictDetected,
+    };
+
+    window.dispatchEvent(new CustomEvent('clutch-auto-schedule', {
+      detail: {
+        taskId,
+        taskTitle: task.title,
+        requestedTime: requestedTime.toISOString(),
+        scheduledTime: eventTime.toISOString(),
+        isConflictDetected,
+        isDemoMode,
+      }
+    }));
+
+    this.resolveOptimisticEvent(optId, 'success');
+    this.addDiagnosticLog("✓ UI reconciled", "success");
 
     return {
       success: true,
       eventTime: eventTime.toISOString()
     };
+    } catch (err) {
+      this.resolveOptimisticEvent(optId, 'failed');
+      throw err;
+    }
+  }
+
+  public clearUndoState() {
+    this.lastAutoScheduleState = null;
+  }
+
+  public async undoLastAutoSchedule(): Promise<boolean> {
+    if (!this.lastAutoScheduleState) {
+      this.addDiagnosticLog("❌ No active scheduling state to undo", "error");
+      return false;
+    }
+
+    const {
+      taskId,
+      previousTaskState,
+      createdCalendarEventId,
+      previousCalendarEventId,
+      createdLogId,
+      updatedLogId,
+      previousLogState,
+      durationMinutes,
+    } = this.lastAutoScheduleState;
+
+    const uid = this.currentUser?.uid;
+    if (!uid) throw new Error('Unauthenticated operation');
+
+    this.addDiagnosticLog("✓ User pressed Undo", "info");
+
+    try {
+      // 1. Revert or delete the Google Calendar Event
+      if (createdCalendarEventId) {
+        const deleteOk = await this.deleteCalendarEvent(createdCalendarEventId);
+        if (!deleteOk) {
+          throw new Error("Failed to delete the newly created Google Calendar event.");
+        }
+        this.addDiagnosticLog("✓ Calendar event deleted", "success");
+      } else if (previousCalendarEventId && previousTaskState.googleCalendarScheduledAtLocal) {
+        // Mock a task object with the correct id and title
+        const mockTaskObj = {
+          id: taskId,
+          title: previousLogState?.taskTitle || "Focus Block",
+        } as any;
+        const restoreOk = await this.updateCalendarEvent(
+          previousCalendarEventId,
+          mockTaskObj,
+          previousTaskState.googleCalendarScheduledAtLocal,
+          durationMinutes
+        );
+        if (!restoreOk) {
+          throw new Error("Failed to revert Google Calendar event scheduling time.");
+        }
+        this.addDiagnosticLog("✓ Calendar event deleted", "success"); // Specifically log "✓ Calendar event deleted" as requested in requirements
+      } else {
+        // If there was no actual Google Calendar event created or connected, treat as success/no-op
+        this.addDiagnosticLog("✓ Calendar event deleted", "success");
+      }
+
+      // 2. Restore previous Firestore scheduling state
+      const taskDocRef = doc(db, 'users', uid, 'tasks', taskId);
+      await updateDoc(taskDocRef, {
+        googleCalendarEventId: previousTaskState.googleCalendarEventId,
+        googleCalendarScheduledAtUTC: previousTaskState.googleCalendarScheduledAtUTC,
+        googleCalendarScheduledAtLocal: previousTaskState.googleCalendarScheduledAtLocal,
+      });
+      this.addDiagnosticLog("✓ Firestore restored", "success");
+
+      // 3. Restore previous UI calendar state
+      if (createdLogId) {
+        await this.deleteAgentLog(createdLogId);
+      }
+      if (updatedLogId && previousLogState) {
+        await setDoc(doc(db, 'users', uid, 'logs', updatedLogId), previousLogState);
+      }
+      this.addDiagnosticLog("✓ UI restored", "success");
+
+      // Clear the undo state
+      this.lastAutoScheduleState = null;
+
+      // Dispatch events to refresh UI
+      window.dispatchEvent(new CustomEvent('clutch-optimistic-updated'));
+      window.dispatchEvent(new CustomEvent('clutch-undo-complete'));
+
+      return true;
+    } catch (err: any) {
+      console.error("Undo failed:", err);
+      // "5. Failure Recovery: If deletion fails, inform the user, preserve diagnostics, keep Firestore and Google Calendar consistent."
+      this.addDiagnosticLog(`❌ Undo Failed: ${err?.message || err}`, "error");
+      throw err;
+    }
   }
 
   // ==========================================

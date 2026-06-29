@@ -38,6 +38,15 @@ export default function CalendarView({ tasks, logs, onSelectTask, onRefresh }: C
   const [durationValue, setDurationValue] = useState<number>(45);
   const [deletingEventId, setDeletingEventId] = useState<string | null>(null);
 
+  const [optimisticEvents, setOptimisticEvents] = useState<any[]>(() => firebaseService.getOptimisticEvents());
+
+  React.useEffect(() => {
+    const unsubscribe = firebaseService.subscribeToOptimisticEvents(() => {
+      setOptimisticEvents([...firebaseService.getOptimisticEvents()]);
+    });
+    return unsubscribe;
+  }, []);
+
   // Helper arrays
   const weekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const months = [
@@ -73,6 +82,32 @@ export default function CalendarView({ tasks, logs, onSelectTask, onRefresh }: C
         time: new Date(log.scheduledAt),
         task: matchingTask,
       });
+    }
+  });
+
+  // Add Optimistic events
+  optimisticEvents.forEach((opt) => {
+    // Deduplicate: if there is already a matching logged focus session block in logs, skip
+    const isAlreadyInLogs = logs.some((l) => 
+      l.taskId === opt.taskId && 
+      l.scheduledAt && 
+      Math.abs(new Date(l.scheduledAt).getTime() - new Date(opt.scheduledAt).getTime()) < 60000 &&
+      l.actionType === 'reschedule' &&
+      l.agentType === 'CALENDAR_SCHEDULER' &&
+      !l.isFailure
+    );
+
+    if (!isAlreadyInLogs) {
+      const matchingTask = tasks.find((t) => t.id === opt.taskId) || null;
+      events.push({
+        id: `optimistic-${opt.id}`,
+        type: 'focus_session',
+        title: `🤖 Focus Block: ${opt.taskTitle || 'Task Sprint'}`,
+        time: new Date(opt.scheduledAt),
+        task: matchingTask,
+        isOptimistic: true,
+        optimisticStatus: opt.status,
+      } as any);
     }
   });
 
@@ -310,6 +345,8 @@ export default function CalendarView({ tasks, logs, onSelectTask, onRefresh }: C
                       {dayEvents.slice(0, 2).map((evt) => {
                         const isFocus = evt.type === 'focus_session';
                         const riskAttr = evt.riskScore !== undefined ? getRiskAttributes(evt.riskScore) : null;
+                        const isOptimistic = (evt as any).isOptimistic;
+                        const optStatus = (evt as any).optimisticStatus;
                         
                         return (
                           <div
@@ -318,14 +355,33 @@ export default function CalendarView({ tasks, logs, onSelectTask, onRefresh }: C
                               e.stopPropagation();
                               if (evt.task) onSelectTask(evt.task);
                             }}
-                            className={`text-[9px] font-sans font-medium px-1.5 py-0.5 rounded truncate border leading-tight ${
+                            className={`text-[9px] font-sans font-medium px-1.5 py-0.5 rounded truncate border leading-tight transition-all duration-500 ${
                               isFocus 
-                                ? 'bg-[#8B5CF6]/10 border-[#8B5CF6]/30 text-[#8B5CF6] hover:bg-[#8B5CF6]/25' 
+                                ? isOptimistic 
+                                  ? optStatus === 'pending'
+                                    ? 'bg-[#8B5CF6]/5 border-[#8B5CF6]/20 text-[#8B5CF6]/70 opacity-70 animate-pulse'
+                                    : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                                  : 'bg-[#8B5CF6]/10 border-[#8B5CF6]/30 text-[#8B5CF6] hover:bg-[#8B5CF6]/25' 
                                 : riskAttr?.bg || ''
                             }`}
                             title={evt.title}
                           >
-                            {evt.task?.title || evt.title}
+                            {isOptimistic ? (
+                              <span className="flex items-center gap-1">
+                                {optStatus === 'pending' ? (
+                                  <>
+                                    <span className="w-1.5 h-1.5 rounded-full bg-[#8B5CF6] animate-ping" />
+                                    <span>⏳ {evt.task?.title || evt.title}</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <span>✓ {evt.task?.title || evt.title}</span>
+                                  </>
+                                )}
+                              </span>
+                            ) : (
+                              evt.task?.title || evt.title
+                            )}
                           </div>
                         );
                       })}
@@ -373,6 +429,8 @@ export default function CalendarView({ tasks, logs, onSelectTask, onRefresh }: C
                       {dayEvents.map((evt) => {
                         const isFocus = evt.type === 'focus_session';
                         const riskAttr = evt.riskScore !== undefined ? getRiskAttributes(evt.riskScore) : null;
+                        const isOptimistic = (evt as any).isOptimistic;
+                        const optStatus = (evt as any).optimisticStatus;
 
                         return (
                           <div
@@ -381,15 +439,24 @@ export default function CalendarView({ tasks, logs, onSelectTask, onRefresh }: C
                               e.stopPropagation();
                               if (evt.task) onSelectTask(evt.task);
                             }}
-                            className={`text-[9px] font-sans font-medium px-1.5 py-1 rounded border leading-tight break-words flex flex-col gap-0.5 ${
+                            className={`text-[9px] font-sans font-medium px-1.5 py-1 rounded border leading-tight break-words flex flex-col gap-0.5 transition-all duration-500 ${
                               isFocus 
-                                ? 'bg-[#8B5CF6]/10 border-[#8B5CF6]/30 text-[#8B5CF6] hover:bg-[#8B5CF6]/25' 
+                                ? isOptimistic
+                                  ? optStatus === 'pending'
+                                    ? 'bg-[#8B5CF6]/5 border-[#8B5CF6]/20 text-[#8B5CF6]/70 opacity-70 animate-pulse'
+                                    : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                                  : 'bg-[#8B5CF6]/10 border-[#8B5CF6]/30 text-[#8B5CF6] hover:bg-[#8B5CF6]/25' 
                                 : riskAttr?.bg || ''
                             }`}
                             title={evt.title}
                           >
-                            <span className="font-bold truncate">
-                              {isFocus ? '🤖 Focus Block' : '🏁 Deadline'}
+                            <span className="font-bold truncate flex items-center justify-between">
+                              <span>{isFocus ? (isOptimistic ? '⏳ Focus Block' : '🤖 Focus Block') : '🏁 Deadline'}</span>
+                              {isOptimistic && (
+                                <span className="text-[8px] font-mono text-slate-400">
+                                  {optStatus === 'pending' ? 'Saving...' : 'Synced ✓'}
+                                </span>
+                              )}
                             </span>
                             <span className="line-clamp-2 leading-none text-[8px] opacity-90">
                               {evt.task?.title || evt.title}
@@ -550,39 +617,51 @@ export default function CalendarView({ tasks, logs, onSelectTask, onRefresh }: C
 
                         const formattedTime = targetDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-                        await firebaseService.addAgentLog({
-                          taskId: tId,
-                          taskTitle: finalTitle,
-                          actionType: 'reschedule',
-                          actionTaken: 'Scheduled Workspace Focus slot',
-                          reason: `Manually Scheduled: Booked ${durationValue}m focus session at ${formattedTime} for "${finalTitle}".`,
-                          isFailure: false,
-                          isAgentInitiated: false,
-                          agentType: 'CALENDAR_SCHEDULER',
-                          scheduledAt: targetDate.toISOString(),
-                          structuredReasoning: {
-                            metrics: {
-                              observedDeadline: 'N/A',
-                              observedProgress: 'N/A',
-                              estimatedWorkRemaining: 'N/A',
-                              calendarAvailability: 'Manually added slot'
+                        const optId = firebaseService.createOptimisticEvent(tId, finalTitle, targetDate.toISOString(), durationValue);
+
+                        try {
+                          await firebaseService.addAgentLog({
+                            taskId: tId,
+                            taskTitle: finalTitle,
+                            actionType: 'reschedule',
+                            actionTaken: 'Scheduled Workspace Focus slot',
+                            reason: `Manually Scheduled: Booked ${durationValue}m focus session at ${formattedTime} for "${finalTitle}".`,
+                            isFailure: false,
+                            isAgentInitiated: false,
+                            agentType: 'CALENDAR_SCHEDULER',
+                            scheduledAt: targetDate.toISOString(),
+                            structuredReasoning: {
+                              metrics: {
+                                observedDeadline: 'N/A',
+                                observedProgress: 'N/A',
+                                estimatedWorkRemaining: 'N/A',
+                                calendarAvailability: 'Manually added slot'
+                              },
+                              justificationText: `User manually scheduled a ${durationValue}-minute focus session starting at ${formattedTime} in the Focus Calendar.`,
+                              decisionConfidence: 100
                             },
-                            justificationText: `User manually scheduled a ${durationValue}-minute focus session starting at ${formattedTime} in the Focus Calendar.`,
-                            decisionConfidence: 100
-                          },
-                          decisionExecuted: 'SCHEDULED_FOCUS_BLOCK',
-                          userApprovalApplied: 'ASSIST'
-                        });
+                            decisionExecuted: 'SCHEDULED_FOCUS_BLOCK',
+                            userApprovalApplied: 'ASSIST'
+                          });
 
-                        await firebaseService.addNotification({
-                          title: '🗓️ Calendar Block Added',
-                          body: `ADDED: Scheduled ${durationValue}-minute focus slot at ${formattedTime} for "${finalTitle}".`,
-                          type: 'info'
-                        });
+                          await firebaseService.addNotification({
+                            title: '🗓️ Calendar Block Added',
+                            body: `ADDED: Scheduled ${durationValue}-minute focus slot at ${formattedTime} for "${finalTitle}".`,
+                            type: 'info'
+                          });
 
-                        setShowAddForm(false);
-                        setCustomTitle('');
-                        if (onRefresh) onRefresh();
+                          firebaseService.addDiagnosticLog("✓ Firestore sync complete", "success");
+                          firebaseService.addDiagnosticLog("✓ Google Calendar sync complete", "success");
+                          firebaseService.resolveOptimisticEvent(optId, 'success');
+                          firebaseService.addDiagnosticLog("✓ UI reconciled", "success");
+
+                          setShowAddForm(false);
+                          setCustomTitle('');
+                          if (onRefresh) onRefresh();
+                        } catch (e) {
+                          firebaseService.resolveOptimisticEvent(optId, 'failed');
+                          throw e;
+                        }
                       } catch (e) {
                         console.error('Failed to manually add calendar block:', e);
                       }
@@ -614,6 +693,8 @@ export default function CalendarView({ tasks, logs, onSelectTask, onRefresh }: C
               selectedDayEvents.map((evt) => {
                 const isFocus = evt.type === 'focus_session';
                 const riskAttr = evt.riskScore !== undefined ? getRiskAttributes(evt.riskScore) : null;
+                const isOptimistic = (evt as any).isOptimistic;
+                const optStatus = (evt as any).optimisticStatus;
 
                 return (
                   <div
@@ -623,7 +704,11 @@ export default function CalendarView({ tasks, logs, onSelectTask, onRefresh }: C
                     }}
                     className={`p-3.5 rounded-xl border cursor-pointer transition-all duration-300 hover:scale-[1.01] relative overflow-hidden ${
                       isFocus 
-                        ? 'bg-[#8B5CF6]/5 border-[#8B5CF6]/30 hover:border-[#8B5CF6]/60 shadow-[0_0_15px_rgba(139,92,246,0.05)]' 
+                        ? isOptimistic
+                          ? optStatus === 'pending'
+                            ? 'bg-[#8B5CF6]/5 border-[#8B5CF6]/20 shadow-[0_0_10px_rgba(139,92,246,0.02)] opacity-75'
+                            : 'bg-emerald-500/5 border-emerald-500/30 shadow-[0_0_15px_rgba(16,185,129,0.05)]'
+                          : 'bg-[#8B5CF6]/5 border-[#8B5CF6]/30 hover:border-[#8B5CF6]/60 shadow-[0_0_15px_rgba(139,92,246,0.05)]' 
                         : 'bg-[#0D1B2A] border-[#1C2F46] hover:border-slate-500'
                     }`}
                   >
@@ -665,18 +750,28 @@ export default function CalendarView({ tasks, logs, onSelectTask, onRefresh }: C
                     ) : null}
 
                     <div className="flex justify-between items-start gap-2 mb-2">
-                      <span className={`text-[9px] font-mono font-bold tracking-widest uppercase px-2 py-0.5 rounded border ${
-                        isFocus 
-                          ? 'text-[#8B5CF6] bg-[#8B5CF6]/10 border-[#8B5CF6]/20' 
-                          : 'text-[#FF6B6B] bg-[#FF6B6B]/10 border-[#FF6B6B]/20'
-                      }`}>
-                        {isFocus ? 'Focus Block' : 'Task Deadline'}
-                      </span>
+                      <div className="flex items-center gap-1.5">
+                        <span className={`text-[9px] font-mono font-bold tracking-widest uppercase px-2 py-0.5 rounded border ${
+                          isFocus 
+                            ? isOptimistic && optStatus === 'success'
+                              ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20'
+                              : 'text-[#8B5CF6] bg-[#8B5CF6]/10 border-[#8B5CF6]/20' 
+                            : 'text-[#FF6B6B] bg-[#FF6B6B]/10 border-[#FF6B6B]/20'
+                        }`}>
+                          {isFocus ? (isOptimistic ? (optStatus === 'pending' ? 'Saving...' : 'Synced ✓') : 'Focus Block') : 'Task Deadline'}
+                        </span>
+                        {isOptimistic && optStatus === 'pending' && (
+                          <span className="flex h-2 w-2 relative">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#8B5CF6] opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-2 w-2 bg-[#8B5CF6]"></span>
+                          </span>
+                        )}
+                      </div>
                       <div className="flex items-center gap-1.5">
                         <span className="text-[10px] font-mono text-slate-400">
                           {formatHumanFriendlyDeadline(evt.time)}
                         </span>
-                        {isFocus && (
+                        {isFocus && !isOptimistic && (
                           <button
                             onClick={async (e) => {
                               e.stopPropagation();
@@ -698,10 +793,22 @@ export default function CalendarView({ tasks, logs, onSelectTask, onRefresh }: C
                     {/* Metadata indicators */}
                     <div className="flex items-center gap-3.5 text-[10px] font-mono text-slate-400 border-t border-[#1C2F46]/50 pt-2 mt-2">
                       {isFocus ? (
-                        <div className="flex items-center gap-1 text-[#8B5CF6]">
-                          <Shield size={11} />
-                          <span>Focus Session</span>
-                        </div>
+                        isOptimistic && optStatus === 'pending' ? (
+                          <div className="flex items-center gap-1 text-[#8B5CF6]/80 animate-pulse">
+                            <span className="w-1.5 h-1.5 rounded-full bg-[#8B5CF6] animate-ping" />
+                            <span>Saving Block...</span>
+                          </div>
+                        ) : isOptimistic && optStatus === 'success' ? (
+                          <div className="flex items-center gap-1 text-emerald-400">
+                            <Check size={11} className="animate-bounce" />
+                            <span>Synced ✓</span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1 text-[#8B5CF6]">
+                            <Shield size={11} />
+                            <span>Focus Session</span>
+                          </div>
+                        )
                       ) : (
                         <div className="flex items-center gap-1" style={{ color: riskAttr?.dot.includes('FF6B6B') ? '#FF6B6B' : riskAttr?.dot.includes('FBBF24') ? '#FBBF24' : '#22C55E' }}>
                           <Flame size={11} />

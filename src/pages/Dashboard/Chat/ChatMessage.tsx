@@ -6,6 +6,7 @@
 import React from 'react';
 import { Calendar } from 'lucide-react';
 import { ChatMessage as ChatMessageType } from '../../../services/gemini';
+import { firebaseService } from '../../../services/firebase';
 
 interface ChatMessageProps {
   msg: ChatMessageType;
@@ -15,6 +16,7 @@ interface ChatMessageProps {
 
 export default function ChatMessage({ msg, onAutoSchedule }: ChatMessageProps) {
   const isUser = msg.role === 'user';
+  const isDemo = firebaseService.getCurrentUser()?.mode === 'demo';
 
   return (
     <div className={`flex flex-col ${isUser ? 'items-end' : 'items-start'}`}>
@@ -37,7 +39,7 @@ export default function ChatMessage({ msg, onAutoSchedule }: ChatMessageProps) {
               className="flex items-center gap-1.5 px-4 py-2 bg-[#8052ff] hover:bg-[#9066ff] text-white font-space font-semibold uppercase rounded-xl text-[10px] tracking-wider transition-all cursor-pointer hover:shadow-[0_0_15px_rgba(128,82,255,0.4)] active:scale-[0.97]"
             >
               <Calendar size={11} />
-              Confirm Booking
+              {isDemo ? 'Confirm Booking (Local)' : 'Confirm Booking'}
             </button>
           </div>
         )}

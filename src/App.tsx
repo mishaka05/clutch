@@ -9,6 +9,7 @@ import Landing from './pages/Landing';
 import Dashboard from './pages/Dashboard';
 import Navbar from './components/Navbar';
 import Cosmic3DBackground from './components/Cosmic3DBackground';
+import UndoNotification from './components/UndoNotification';
 import { firebaseService } from './services/firebase';
 import { UserProfile, Task } from './types';
 
@@ -107,6 +108,7 @@ export default function App() {
             </motion.div>
           )}
         </AnimatePresence>
+        <UndoNotification />
       </div>
     </div>
   );

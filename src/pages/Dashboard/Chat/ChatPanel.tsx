@@ -30,7 +30,17 @@ export default function ChatPanel({ task, hoursRemaining, onRescheduleCompleted 
       if (persisted && persisted.length > 0) {
         setMessages(persisted);
       } else {
-        const welcomeText = `Acknowledged. I am analyzing the operational envelope of your task **"${task.title}"**. Currently, the risk index is **${task.riskScore}%** with **${hoursRemaining.toFixed(1)} hours** remaining.
+        const isDemo = firebaseService.getCurrentUser()?.mode === 'demo';
+        const welcomeText = isDemo
+          ? `Acknowledged. I am analyzing the operational envelope of your task **"${task.title}"**. Currently, the risk index is **${task.riskScore}%** with **${hoursRemaining.toFixed(1)} hours** remaining.
+
+*Note: Since you are in Demo Mode, real Google Calendar synchronization is unavailable. Focus sessions will be scheduled locally inside your secure workspace.*
+
+How can I rescue this deadline? I can:
+1. Schedule an emergency focus session locally
+2. Explain a complex technical concept
+3. Help you draft code or answers for remaining steps`
+          : `Acknowledged. I am analyzing the operational envelope of your task **"${task.title}"**. Currently, the risk index is **${task.riskScore}%** with **${hoursRemaining.toFixed(1)} hours** remaining.
 
 How can I rescue this deadline? I can:
 1. Schedule an emergency focus session in Google Calendar
@@ -53,6 +63,7 @@ How can I rescue this deadline? I can:
   // Adaptive suggested actions based on task context
   const getSuggestedActions = () => {
     const actions: string[] = [];
+    const isDemo = firebaseService.getCurrentUser()?.mode === 'demo';
     
     if (task.category === 'academic') {
       actions.push('Explain this concept');
@@ -64,7 +75,7 @@ How can I rescue this deadline? I can:
     
     if (task.riskScore > 60) {
       actions.push('Reduce task risk');
-      actions.push('Schedule a focus session');
+      actions.push(isDemo ? 'Schedule local focus session' : 'Schedule a focus session');
     }
     
     const incomplete = task.subtasks?.filter(s => !s.completed) || [];
@@ -80,7 +91,9 @@ How can I rescue this deadline? I can:
     if (actions.length < 3) {
       if (!actions.includes('Estimate remaining workload')) actions.push('Estimate remaining workload');
       if (!actions.includes('Break this task into smaller steps')) actions.push('Break this task into smaller steps');
-      if (!actions.includes('Schedule a focus session')) actions.push('Schedule a focus session');
+      if (!actions.includes(isDemo ? 'Schedule local focus session' : 'Schedule a focus session')) {
+        actions.push(isDemo ? 'Schedule local focus session' : 'Schedule a focus session');
+      }
     }
     
     return Array.from(new Set(actions)).slice(0, 4);
@@ -291,13 +304,13 @@ How can I rescue this deadline? I can:
                 <div className="font-mono text-[9px] bg-red-500/20 text-red-300 px-2 py-0.5 rounded-full mt-0.5">{firstUncompleted ? '3' : '2'}</div>
                 <div className="text-[11px] text-slate-200 flex flex-col gap-2">
                   <span>
-                    <span className="font-bold text-white">Deep Work Block:</span> Authorize a 90-minute focus session directly in your schedule.
+                    <span className="font-bold text-white">Deep Work Block:</span> {firebaseService.getCurrentUser()?.mode === 'demo' ? 'Book a 90-minute focus session locally (Google Calendar is unavailable in Demo Mode).' : 'Authorize a 90-minute focus session directly in your schedule.'}
                   </span>
                   <button
                     onClick={handleAutoSchedule}
                     className="self-start flex items-center gap-1.5 bg-[#E11D48] hover:bg-[#F43F5E] text-white text-[9px] font-space font-semibold uppercase py-1.5 px-3 rounded-full transition-all tracking-wider hover:shadow-[0_0_15px_rgba(225,29,72,0.4)] cursor-pointer active:scale-[0.97]"
                   >
-                    <Calendar size={10} /> Book Focus Slot
+                    <Calendar size={10} /> {firebaseService.getCurrentUser()?.mode === 'demo' ? 'Book Focus Slot (Local)' : 'Book Focus Slot'}
                   </button>
                 </div>
               </div>

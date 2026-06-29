@@ -271,7 +271,23 @@ let geminiCooldownUntil = 0;
 const COOLDOWN_DURATION = 60 * 1000; // 1 minute cooldown
 
 function handleGeminiError(error: any, context: string) {
-  console.error(`[Gemini Error - ${context}]:`, error);
+  // Redact GEMINI_API_KEY from error object or string to prevent secrets leaking in server logs
+  const apiKey = process.env.GEMINI_API_KEY;
+  let loggedError = error;
+  if (apiKey && apiKey !== "MY_GEMINI_API_KEY") {
+    try {
+      const errorStr = JSON.stringify(error);
+      if (errorStr.includes(apiKey)) {
+        loggedError = JSON.parse(errorStr.split(apiKey).join("[REDACTED_API_KEY]"));
+      }
+    } catch {
+      if (typeof error === 'string' && error.includes(apiKey)) {
+        loggedError = error.split(apiKey).join("[REDACTED_API_KEY]");
+      }
+    }
+  }
+
+  console.error(`[Gemini Error - ${context}]:`, loggedError);
   const errorMsg = String(error?.message || '').toLowerCase();
   const isQuotaError = error?.status === 429 || 
                        errorMsg.includes('429') || 
@@ -750,6 +766,7 @@ function simulateCrisisPlan(title: string, hoursRemaining: number): string[] {
 
 async function startServer() {
   const app = express();
+  app.disable('x-powered-by');
   const PORT = 3000;
 
   app.use(express.json());
