@@ -54,6 +54,15 @@ that:
 
 ## Key Features
 
+### Autonomous Backend Operations
+- **Autonomous Backend Risk Assessment**: A serverless agent that responds to Firestore triggers to automatically evaluate task urgency and compute risk metrics.
+- **Server-side Escalation Agent**: An independent decision-making layer that evaluates task state metrics to trigger emergency mitigations autonomously.
+- **Event-driven Cloud Functions**: Firebase Cloud Functions that execute automatically based on Firestore lifecycle events, completely independent of whether a client browser is open.
+- **Real-time Notification Dispatch**: Real-time push updates utilizing deterministic notification IDs to alert users instantly upon change in task risk or status.
+- **Explainable Agent Logs**: Injects structured reasoning, confidence scores, and metrics directly into the existing user diagnostic telemetry and timeline.
+- **Idempotent Notification System**: Eliminates redundant updates and prevents duplicate alerts, logs, or state overrides by verifying deterministic doc IDs and state configurations.
+- **Automatic De-escalation**: Intelligently cleans up outdated active warnings, resolves obsolete emergency triggers, and downgrades risk states as tasks progress.
+
 ### Multi-Agent Decision Pipeline
 Clutch coordinates specialized agents responsible for parsing, risk assessment, scheduling, recovery, and explainability. Each agent contributes a focused decision before handing control to the next stage of the workflow. When the system detects stalling progress against an approaching deadline, it autonomously locates available calendar slots, schedules a 45-minute focus block, resolves any conflicts by shifting to the next gap, and writes the event directly to Google Calendar — all without user intervention.
 
@@ -92,6 +101,32 @@ A developer-grade terminal interface with live log streaming, outage simulation 
 
 ## System Architecture
 
+### Complete Event Pipeline
+All backend agents coordinate in a seamless, event-driven cascade from task updates to visual feedback:
+
+```
+User Task (Created/Updated)
+        ↓
+    Firestore (Event Triggers)
+        ↓
+Risk Assessment Agent (Evaluates Risk Score)
+        ↓
+  Escalation Agent (Decision & Telemetry Logs)
+        ↓
+Notification Dispatch (Deterministic IDs)
+        ↓
+    Agent Log (Saved with Explainability)
+        ↓
+   Dashboard UI (Real-Time Synchronisation)
+```
+
+### Backend Safety & Design Principles
+All Clutch backend agents are designed from the ground up to be:
+* **Idempotent**: Repetitive triggers or document writes will never spawn duplicate alert cards, redundant logging timeline events, or stale database snapshots.
+* **Deterministic**: Clear thresholds dictate state evaluations so that decisions remain completely predictable and audit-trail compliant.
+* **Loop-Safe**: Comprehensive loop prevention checks are embedded in the triggers to ensure that updates made to tasks or alerts by backend agents never result in cascading, infinite Firestore loops.
+* **Explainable**: Complete reasoning pathways, telemetry metrics, and confidence bounds are saved to the log timeline to provide absolute clarity to developers and end users.
+
 ```mermaid
 graph TB
     subgraph CLIENT ["Client — React, Vite, TypeScript"]
@@ -125,6 +160,21 @@ graph TB
     UI --> CALENDAR
     PROXY --> CALENDAR
 ```
+
+---
+
+## Autonomous Backend Agents
+
+Clutch now features fully autonomous backend agents powered by Firebase Cloud Functions. These agents execute server-side and continue monitoring, analyzing, and intervening in your workspace even when you close your browser.
+
+### Key Capabilities & Mechanics
+* **Event-Driven Firestore Triggers**: Every action in the system is reacted to in real time. Creating, editing, or completing tasks triggers background agents instantly.
+* **Backend Risk Assessment Agent**: Autonomously evaluates deadline urgency, task complexity, and remaining completion windows to generate dynamic risk scores and warnings.
+* **Escalation Agent**: An independent server-side decision layer. Instead of simply plotting numeric values, it reasons over the task metrics (e.g., risk >= 80% or low progress with approaching deadlines) to escalate high-risk items into **EMERGENCY** status.
+* **Autonomous Notification Generation**: Dispatches push-alerts, schedules dashboard interventions, and updates notifications using deterministic doc IDs (`risk_<taskId>` and `emergency_<taskId>`) to avoid alert spam.
+* **Structured Telemetry Logging**: Every decision approved by the Escalation Agent produces complete telemetry data including confidence ratings, triggers list, and metrics reasoning, injected directly into the user's Agent Log feed.
+* **Loop Prevention**: Internal comparison checks ensure that database modifications done by the agents themselves do not re-trigger the function, eliminating recursive loops.
+* **Automatic De-escalation**: When tasks are progressed or deadlines are deferred, the agents automatically downgrade tasks, deactivate warning states, and mark alerts as read/dismissed in-place.
 
 ---
 
@@ -183,10 +233,12 @@ flowchart LR
 | **Styling** | Tailwind CSS | Utility-first, dark theme token system |
 | **Animation** | Framer Motion | Page transitions, micro-interactions, particle system |
 | **Backend** | Node.js + Express (`server.ts`) | Secure Gemini proxy, header sanitisation |
+| **Cloud Functions** | Firebase Cloud Functions (Node.js 20) | Serverless triggers for autonomous agent evaluations |
 | **AI Model** | Gemini 2.5 Flash / Gemini 2.5 Pro | Task parsing, coaching, risk reasoning |
 | **AI SDK** | `@google/genai` TypeScript SDK | Server-side Gemini integration |
 | **Auth** | Firebase Auth | Google OAuth + Anonymous sign-in |
-| **Database** | Cloud Firestore | Real-time task sync, offline-first |
+| **Database / Triggers** | Cloud Firestore + Event Triggers | Real-time task sync and server-side change triggers |
+| **Backend Integration** | Firebase Admin SDK | Secure database modifications and administrative logging |
 | **Calendar** | Google Calendar REST API v3 | Bi-directional focus block scheduling |
 | **Deploy** | Google AI Studio + Cloud Run | Production hosting, scalable container runtime |
 

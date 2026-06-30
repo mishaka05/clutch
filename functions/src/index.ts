@@ -30,6 +30,7 @@ export const evaluateTaskRisk = onDocumentWritten("users/{userId}/tasks/{taskId}
     return;
   }
   
+  const beforeSnap = change.before;
   const afterSnap = change.after;
   
   // 1. Safety: Gracefully handle deleted tasks
@@ -51,6 +52,27 @@ export const evaluateTaskRisk = onDocumentWritten("users/{userId}/tasks/{taskId}
     return;
   }
   
+  // 3. Loop Prevention / Idempotency Check:
+  // If the core task metrics (status, riskScore, progress, deadline, title) have not changed,
+  // we exit early to prevent infinite Firestore trigger loops when updating the same task document.
+  if (beforeSnap.exists && afterSnap.exists) {
+    const beforeData = beforeSnap.data();
+    const afterData = afterSnap.data();
+    if (beforeData && afterData) {
+      const coreUnchanged = 
+        beforeData.status === afterData.status &&
+        beforeData.riskScore === afterData.riskScore &&
+        beforeData.progress === afterData.progress &&
+        beforeData.deadline === afterData.deadline &&
+        beforeData.title === afterData.title;
+        
+      if (coreUnchanged) {
+        console.log(`Core task metrics are identical between snapshots for task ${taskId}. Skipping execution to prevent recursive trigger loops.`);
+        return;
+      }
+    }
+  }
+  
   // Extract metrics
   const riskScore = taskData.riskScore ?? 0;
   const progress = taskData.progress ?? 0;
@@ -68,7 +90,7 @@ export const evaluateTaskRisk = onDocumentWritten("users/{userId}/tasks/{taskId}
   let requiresIntervention = false;
   let reasonForIntervention = "";
   
-  // 3. Risk Evaluation logic matching guidelines
+  // 4. Risk Evaluation logic matching guidelines
   if (riskScore >= 80) {
     requiresIntervention = true;
     reasonForIntervention = `Task risk score is critically high (${riskScore}%) with completion progress lagging at ${progress}%.`;
@@ -77,15 +99,52 @@ export const evaluateTaskRisk = onDocumentWritten("users/{userId}/tasks/{taskId}
     reasonForIntervention = `Deadline is approaching within ${Math.round(hoursRemaining)} hours while completion progress remains low (${progress}%).`;
   }
   
+  const notificationsRef = db.collection("users").doc(userId).collection("notifications");
+  const logsRef = db.collection("users").doc(userId).collection("logs");
+  const taskDocRef = db.collection("users").doc(userId).collection("tasks").doc(taskId);
+  
   // Exit immediately if task is low-risk or doesn't meet the threshold
   if (!requiresIntervention) {
-    console.log(`Task ${taskId} is evaluated as low risk (Score: ${riskScore}, Progress: ${progress}, Hours left: ${hoursRemaining.toFixed(1)}). Exiting.`);
+    console.log(`Task ${taskId} is evaluated as low risk (Score: ${riskScore}, Progress: ${progress}, Hours left: ${hoursRemaining.toFixed(1)}).`);
+    
+    // De-escalate task if it was previously marked as escalated
+    if (taskData.escalated === true) {
+      await taskDocRef.set({
+        escalated: false,
+        escalationState: "DE_ESCALATED",
+        escalationDecision: null
+      }, { merge: true });
+      
+      const deEscalationLogId = `log-deescalation-${taskId}`;
+      await logsRef.doc(deEscalationLogId).set({
+        id: deEscalationLogId,
+        uid: userId,
+        taskId: taskId,
+        taskTitle: title,
+        actionType: "do_nothing",
+        actionTaken: "De-escalated Task Status",
+        reason: "Risk has subsided below safe operating thresholds.",
+        timestamp: new Date().toISOString(),
+        isAgentInitiated: true,
+        agentType: "ESCALATION_AGENT",
+        evaluationSource: "deterministic",
+        userApprovalApplied: "AUTONOMOUS",
+        event: "escalation_evaluation",
+        calculatedOutcome: "DE_ESCALATED"
+      });
+      console.log(`Successfully logged de-escalation for task ${taskId}`);
+    }
+    
+    // Clear notifications
+    const oppositeNotifDocRef1 = notificationsRef.doc(`risk_${taskId}`);
+    const oppositeNotifDocRef2 = notificationsRef.doc(`emergency_${taskId}`);
+    await oppositeNotifDocRef1.set({ isRead: true, unread: false }, { merge: true });
+    await oppositeNotifDocRef2.set({ isRead: true, unread: false }, { merge: true });
+    
     return;
   }
   
   try {
-    const notificationsRef = db.collection("users").doc(userId).collection("notifications");
-    
     // Determine the notification type, title, and ID based on the risk level
     let notifId = "";
     let notifTitle = "";
@@ -148,7 +207,6 @@ export const evaluateTaskRisk = onDocumentWritten("users/{userId}/tasks/{taskId}
       const oppositeNotifDocRef = notificationsRef.doc(`risk_${taskId}`);
       const oppositeNotifSnap = await oppositeNotifDocRef.get();
       if (oppositeNotifSnap.exists) {
-        // Mark as read/unread or delete. Let's mark it as read and unread: false so it doesn't alert
         await oppositeNotifDocRef.set({ isRead: true, unread: false }, { merge: true });
         console.log(`Deactivated stale high risk notification for task ${taskId} upon escalation to emergency.`);
       }
@@ -161,16 +219,14 @@ export const evaluateTaskRisk = onDocumentWritten("users/{userId}/tasks/{taskId}
       }
     }
     
-    // 5. Diagnostic Logging
-    const logsRef = db.collection("users").doc(userId).collection("logs");
-    const logId = `log-backend-risk-${taskId}-${Math.random().toString(36).substring(2, 7)}`;
-    
+    // 5. Diagnostic Logging for Risk Assessment Agent
+    const riskLogId = `log-backend-risk-${taskId}`;
     const calculatedOutcome = "INTERVENTION_REQUIRED";
     const actionTaken = `Generated ${type} risk notification warning in user dashboard`;
     
     // Construct rich audit-trail entry perfectly aligned with AgentLog schema
     const logPayload = {
-      id: logId,
+      id: riskLogId,
       uid: userId,
       taskId: taskId,
       taskTitle: title,
@@ -202,8 +258,122 @@ export const evaluateTaskRisk = onDocumentWritten("users/{userId}/tasks/{taskId}
       }
     };
     
-    await logsRef.doc(logId).set(logPayload);
-    console.log(`Successfully created structured diagnostic log ${logId} for task ${taskId}`);
+    await logsRef.doc(riskLogId).set(logPayload);
+    console.log(`Successfully created structured diagnostic log ${riskLogId} for task ${taskId}`);
+    
+    // ====================================================
+    // ESCALATION AGENT LAYER (Autonomous backend layer)
+    // ====================================================
+    
+    const shouldEscalate = (riskScore >= 80) || (hoursRemaining > 0 && hoursRemaining <= 24 && progress < 50);
+    
+    if (shouldEscalate) {
+      console.log(`Escalation Agent triggered for task ${taskId}. Executing autonomous escalation pipeline...`);
+      
+      // Construct triggers list
+      const triggeredBy: string[] = [];
+      if (riskScore >= 80) triggeredBy.push("HIGH_RISK_SCORE");
+      if (progress < 50) triggeredBy.push("LOW_PROGRESS");
+      if (hoursRemaining > 0 && hoursRemaining <= 24) triggeredBy.push("DEADLINE_PROXIMITY");
+      
+      const escalationDecisionText = "Escalation approved due to insufficient remaining execution window.";
+      const escalationReason = "Risk score exceeded safe operating threshold while remaining execution window is critically low.";
+      
+      // 1 & 2. Mark task internally as escalated & Write decision
+      const escalationDecision = {
+        level: "EMERGENCY",
+        triggeredBy: triggeredBy,
+        confidence: 95,
+        decision: escalationDecisionText,
+        timestamp: new Date().toISOString()
+      };
+      
+      await taskDocRef.set({
+        escalated: true,
+        escalationState: "ESCALATED",
+        escalationDecision: escalationDecision
+      }, { merge: true });
+      
+      console.log(`Successfully wrote Escalation Decision payload to task ${taskId}`);
+      
+      // 3. Write detailed telemetry log for Escalation Agent (deterministic ID for idempotency)
+      const escalationLogId = `log-escalation-${taskId}`;
+      const escalationLogPayload = {
+        id: escalationLogId,
+        uid: userId,
+        taskId: taskId,
+        taskTitle: title,
+        actionType: "escalate_risk" as const,
+        actionTaken: "Emergency Escalation Approved",
+        reason: escalationReason,
+        timestamp: new Date().toISOString(),
+        isAgentInitiated: true,
+        agentType: "ESCALATION_AGENT" as const,
+        evaluationSource: "deterministic",
+        userApprovalApplied: "AUTONOMOUS",
+        
+        // Structured explainability details for telemetry timeline
+        event: "escalation_evaluation",
+        calculatedOutcome: "ESCALATION_APPROVED",
+        decision: "Emergency escalation approved.",
+        confidence: "95%",
+        reasonForIntervention: escalationReason,
+        actionTakenDetail: "Escalated task document state and dispatched emergency dashboard controls.",
+        
+        structuredReasoning: {
+          metrics: {
+            observedDeadline: deadline || "N/A",
+            observedProgress: `${progress}%`,
+            estimatedWorkRemaining: `${100 - progress}%`,
+            riskScore: `${riskScore}%`
+          },
+          justificationText: escalationReason,
+          decisionConfidence: 0.95
+        }
+      };
+      
+      await logsRef.doc(escalationLogId).set(escalationLogPayload);
+      console.log(`Successfully wrote deterministic Escalation Log ${escalationLogId}`);
+      
+      // 4. Create or update the emergency notification (deterministic ID)
+      const emergencyNotifId = `emergency_${taskId}`;
+      const emergencyNotifDocRef = notificationsRef.doc(emergencyNotifId);
+      const emergencySnap = await emergencyNotifDocRef.get();
+      
+      let emergencyIsRead = false;
+      let emergencyUnread = true;
+      let emergencyCreatedAt = new Date().toISOString();
+      
+      if (emergencySnap.exists) {
+        const existingEmergencyData = emergencySnap.data();
+        if (existingEmergencyData) {
+          emergencyIsRead = existingEmergencyData.isRead ?? false;
+          emergencyUnread = existingEmergencyData.unread ?? true;
+          emergencyCreatedAt = existingEmergencyData.createdAt || existingEmergencyData.timestamp || new Date().toISOString();
+        }
+      }
+      
+      const emergencyText = `🚨 ${escalationReason} Escalation Agent autonomously approved EMERGENCY escalation status.`;
+      
+      const emergencyPayload = {
+        id: emergencyNotifId,
+        title: "🚨 Clutch Emergency Dispatch",
+        body: emergencyText,
+        description: emergencyText,
+        timestamp: new Date().toISOString(),
+        createdAt: emergencyCreatedAt,
+        isRead: emergencyIsRead,
+        unread: emergencyUnread,
+        taskId: taskId,
+        type: "crisis",
+        severity: "crisis",
+        source: "Backend Risk Agent", // keep source so Crisis Mode visual handlers stay standard
+        riskScore: riskScore
+      };
+      
+      await emergencyNotifDocRef.set(emergencyPayload, { merge: true });
+      console.log(`Successfully dispatched Emergency notification ${emergencyNotifId}`);
+    }
     
   } catch (error) {
     console.error(`Error executing Backend Risk Agent trigger for task ${taskId}:`, error);

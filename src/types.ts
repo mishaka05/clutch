@@ -67,7 +67,7 @@ export interface AgentLog {
   isAgentInitiated: boolean; // Purple vs Cyan indicator
 
   // Phase 2 Milestone 1 Expanded Fields:
-  agentType?: 'TASK_MONITOR' | 'RISK_ASSESSOR' | 'CALENDAR_SCHEDULER' | 'RECOVERY_AGENT';
+  agentType?: 'TASK_MONITOR' | 'RISK_ASSESSOR' | 'CALENDAR_SCHEDULER' | 'RECOVERY_AGENT' | 'ESCALATION_AGENT';
   telemetryFeedback?: 'PENDING' | 'USER_ACCEPTED' | 'USER_IGNORED' | 'USER_DELETED';
   structuredReasoning?: {
     metrics?: {
@@ -101,4 +101,8 @@ export interface AppNotification {
   isRead: boolean;
   taskId?: string;
   type: 'info' | 'warning' | 'crisis' | 'success';
+  severity?: 'info' | 'warning' | 'crisis' | 'success';
+  source?: string;
+  riskScore?: number;
+  createdAt?: string;
 }

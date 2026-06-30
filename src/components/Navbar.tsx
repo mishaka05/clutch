@@ -27,10 +27,52 @@ export default function Navbar({ user, tasks, activeTab, setActiveTab, onLogout 
 
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [isTrayOpen, setIsTrayOpen] = useState(false);
+  const [recentUpdates, setRecentUpdates] = useState<Record<string, {
+    updatedAt: number;
+    prevRiskScore?: number;
+    newRiskScore?: number;
+  }>>({});
+
+  const prevNotifsRef = React.useRef<AppNotification[]>([]);
+  const isInitialLoadRef = React.useRef<boolean>(true);
 
   const loadNotifications = async () => {
     const list = await firebaseService.getNotifications();
+    
+    if (isInitialLoadRef.current) {
+      setNotifications(list);
+      prevNotifsRef.current = list;
+      isInitialLoadRef.current = false;
+      return;
+    }
+
+    const updatedMap = { ...recentUpdates };
+    let hasNewUpdates = false;
+
+    for (const newNotif of list) {
+      const oldNotif = prevNotifsRef.current.find(n => n.id === newNotif.id);
+      if (oldNotif) {
+        const bodyChanged = oldNotif.body !== newNotif.body;
+        const typeChanged = oldNotif.type !== newNotif.type;
+        const riskChanged = oldNotif.riskScore !== newNotif.riskScore;
+
+        if (bodyChanged || typeChanged || riskChanged) {
+          hasNewUpdates = true;
+          updatedMap[newNotif.id] = {
+            updatedAt: Date.now(),
+            prevRiskScore: oldNotif.riskScore,
+            newRiskScore: newNotif.riskScore,
+          };
+        }
+      }
+    }
+
+    if (hasNewUpdates) {
+      setRecentUpdates(updatedMap);
+    }
+
     setNotifications(list);
+    prevNotifsRef.current = list;
   };
 
   useEffect(() => {
@@ -38,6 +80,30 @@ export default function Navbar({ user, tasks, activeTab, setActiveTab, onLogout 
     window.addEventListener('clutch-notifications-updated', loadNotifications);
     return () => window.removeEventListener('clutch-notifications-updated', loadNotifications);
   }, []);
+
+  useEffect(() => {
+    const keys = Object.keys(recentUpdates);
+    if (keys.length === 0) return;
+
+    const interval = setInterval(() => {
+      const now = Date.now();
+      let changed = false;
+      const copy = { ...recentUpdates };
+
+      for (const id of keys) {
+        if (now - copy[id].updatedAt >= 5000) {
+          delete copy[id];
+          changed = true;
+        }
+      }
+
+      if (changed) {
+        setRecentUpdates(copy);
+      }
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [recentUpdates]);
 
   const unreadCount = notifications.filter(n => !n.isRead).length;
 
@@ -175,44 +241,120 @@ export default function Navbar({ user, tasks, activeTab, setActiveTab, onLogout 
                     )}
                   </div>
 
-                  <div className="max-h-64 overflow-y-auto space-y-2 divide-y divide-slate-800/40 pr-1">
+                  <div className="max-h-64 overflow-y-auto space-y-2.5 pr-1 relative">
                     {notifications.length === 0 ? (
                       <div className="text-center py-8 text-slate-500 font-mono text-[11px]">
                         📭 Queue Empty. No active alerts.
                       </div>
                     ) : (
-                      notifications.map((notif) => (
-                        <div
-                          key={notif.id}
-                          onClick={async () => {
-                            await firebaseService.markNotificationAsRead(notif.id);
-                            await loadNotifications();
-                          }}
-                          className={`pt-2.5 first:pt-0 flex items-start gap-2.5 cursor-pointer transition-colors group ${
-                            notif.isRead ? 'opacity-50' : 'opacity-100'
-                          }`}
-                        >
-                          <span className="mt-1 shrink-0 text-xs">
-                            {notif.type === 'crisis' ? '🚨' : notif.type === 'warning' ? '⚠️' : 'ℹ️'}
-                          </span>
-                          <div className="space-y-0.5 flex-1 min-w-0">
-                            <h4 className={`text-xs font-sans font-bold leading-tight group-hover:text-[#00D4FF] transition-colors ${
-                              notif.isRead ? 'text-slate-400' : 'text-slate-200'
-                            }`}>
-                              {notif.title}
-                            </h4>
-                            <p className="text-[11px] text-slate-400 font-sans leading-normal break-words">
-                              {notif.body}
-                            </p>
-                            <div className="text-[9px] font-mono text-slate-500">
-                              {formatHumanFriendlyDeadline(notif.timestamp)}
+                      notifications.map((notif) => {
+                        const updateInfo = recentUpdates[notif.id];
+                        const isUpdated = !!updateInfo;
+                        const hasRiskChanged = isUpdated && 
+                          updateInfo.prevRiskScore !== undefined && 
+                          updateInfo.newRiskScore !== undefined && 
+                          updateInfo.prevRiskScore !== updateInfo.newRiskScore;
+
+                        return (
+                          <motion.div
+                            key={notif.id}
+                            onClick={async () => {
+                              await firebaseService.markNotificationAsRead(notif.id);
+                              await loadNotifications();
+                            }}
+                            animate={isUpdated ? {
+                              scale: [1, 1.02, 1],
+                              borderColor: ["rgba(28, 47, 70, 0.4)", "rgba(0, 212, 255, 0.8)", "rgba(28, 47, 70, 0.4)"],
+                              boxShadow: [
+                                "0 0 0 rgba(0, 212, 255, 0)",
+                                "0 0 12px rgba(0, 212, 255, 0.3)",
+                                "0 0 0 rgba(0, 212, 255, 0)"
+                              ]
+                            } : {}}
+                            transition={isUpdated ? {
+                              repeat: Infinity,
+                              duration: 1.5,
+                              ease: "easeInOut"
+                            } : {}}
+                            className={`relative p-3 rounded-xl border flex gap-2.5 cursor-pointer transition-all duration-300 group ${
+                              isUpdated
+                                ? 'bg-[#10243C]/60 border-[#00D4FF]/50 shadow-[0_0_15px_rgba(0,212,255,0.15)] ring-1 ring-[#00D4FF]/20'
+                                : 'bg-[#09121E]/50 border-[#1C2F46]/70 hover:bg-[#122339]/50 hover:border-[#2A415C]/80 shadow-inner'
+                            } ${
+                              notif.isRead ? 'opacity-55 hover:opacity-85' : 'opacity-100'
+                            }`}
+                          >
+                            <span className="mt-0.5 shrink-0 text-sm">
+                              {notif.type === 'crisis' ? '🚨' : notif.type === 'warning' ? '⚠️' : 'ℹ️'}
+                            </span>
+                            
+                            <div className="space-y-1 flex-1 min-w-0">
+                              <div className="flex items-center flex-wrap gap-1.5">
+                                <h4 className={`text-xs font-sans font-bold leading-tight group-hover:text-[#00D4FF] transition-colors ${
+                                  notif.isRead ? 'text-slate-400' : 'text-slate-200'
+                                }`}>
+                                  {notif.title}
+                                </h4>
+                                
+                                <AnimatePresence>
+                                  {isUpdated && (
+                                    <motion.span
+                                      initial={{ scale: 0.7, opacity: 0 }}
+                                      animate={{ scale: 1, opacity: 1 }}
+                                      exit={{ scale: 0.7, opacity: 0 }}
+                                      className="inline-flex items-center px-1.5 py-0.5 rounded text-[8px] font-mono font-bold bg-[#00D4FF]/20 text-[#00D4FF] border border-[#00D4FF]/30 tracking-widest uppercase shrink-0 animate-pulse"
+                                    >
+                                      UPDATED
+                                    </motion.span>
+                                  )}
+                                </AnimatePresence>
+                              </div>
+                              
+                              <p className="text-[11px] text-slate-400 font-sans leading-normal break-words">
+                                {notif.body}
+                              </p>
+
+                              <AnimatePresence>
+                                {hasRiskChanged && (
+                                  <motion.div
+                                    initial={{ height: 0, opacity: 0, marginTop: 0 }}
+                                    animate={{ height: "auto", opacity: 1, marginTop: 6 }}
+                                    exit={{ height: 0, opacity: 0, marginTop: 0 }}
+                                    transition={{ duration: 0.25 }}
+                                    className="overflow-hidden"
+                                  >
+                                    <div className="flex items-center gap-1.5 bg-[#00D4FF]/10 border border-[#00D4FF]/20 rounded-md px-2 py-1 font-mono text-[10px] text-[#00D4FF] w-fit">
+                                      <span className="font-semibold uppercase tracking-wider text-[8px]">Risk Updated:</span>
+                                      <span className="font-bold line-through opacity-65">{updateInfo.prevRiskScore}%</span>
+                                      <span>→</span>
+                                      <span className="font-extrabold text-white animate-bounce inline-block">{updateInfo.newRiskScore}%</span>
+                                    </div>
+                                  </motion.div>
+                                )}
+                              </AnimatePresence>
+
+                              <div className="text-[9px] font-mono text-slate-500 pt-1 flex items-center justify-between">
+                                <span>
+                                  {isUpdated ? (
+                                    <span className="text-[#00D4FF] font-bold animate-pulse">Just now</span>
+                                  ) : (
+                                    formatHumanFriendlyDeadline(notif.timestamp)
+                                  )}
+                                </span>
+                                {notif.riskScore !== undefined && (
+                                  <span className="text-slate-400 font-mono text-[9px] bg-[#112235] px-1.5 py-0.5 rounded border border-slate-700/50">
+                                    Risk: {notif.riskScore}%
+                                  </span>
+                                )}
+                              </div>
                             </div>
-                          </div>
-                          {!notif.isRead && (
-                            <div className="w-1.5 h-1.5 rounded-full bg-[#00D4FF] mt-1.5 shrink-0" />
-                          )}
-                        </div>
-                      ))
+
+                            {!notif.isRead && (
+                              <div className="absolute top-3.5 right-3 w-1.5 h-1.5 rounded-full bg-[#00D4FF] shrink-0 shadow-[0_0_8px_rgba(0,212,255,0.8)]" />
+                            )}
+                          </motion.div>
+                        );
+                      })
                     )}
                   </div>
                 </motion.div>
