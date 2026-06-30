@@ -10,6 +10,17 @@
 [![Vite](https://img.shields.io/badge/Vite-Build%20Tool-646CFF?style=for-the-badge&logo=vite&logoColor=white)](https://vitejs.dev/)
 [![Deployed on AI Studio](https://img.shields.io/badge/Deployed-Google%20AI%20Studio-34A853?style=for-the-badge&logo=google&logoColor=white)](https://aistudio.google.com/)
 
+<div align="center" style="margin-top: 10px;">
+
+| Feature / Stack Badges |
+| :--- |
+| **🧠 Core AI** : &nbsp;&nbsp;&nbsp;&nbsp; `✅ Gemini AI` &nbsp;&nbsp;•&nbsp;&nbsp; `✅ Explainable Agent Logs` |
+| **📅 Integrations** : &nbsp;&nbsp; `✅ Google Calendar Integration` &nbsp;&nbsp;•&nbsp;&nbsp; `✅ Cloud Run Deployment` |
+| **🔥 Backend / DB** : &nbsp; `✅ Firebase Authentication` &nbsp;&nbsp;•&nbsp;&nbsp; `✅ Cloud Firestore` &nbsp;&nbsp;•&nbsp;&nbsp; `✅ Firebase Cloud Functions` |
+| **🤖 Autonomous** : &nbsp;&nbsp;&nbsp; `✅ Autonomous Risk Assessment` &nbsp;&nbsp;•&nbsp;&nbsp; `✅ Escalation Agent` |
+
+</div>
+
 *Submitted for Vibe2Ship — Coding Ninjas × Google for Developers Hackathon*
 *Problem Statement 1: The Last-Minute Life Saver*
 
@@ -336,6 +347,30 @@ Rules are pre-configured in `firestore.rules`. Each user can only access their o
 | Product Experience & Design | 10% | Premium AI OS interface, Framer Motion system, responsive layouts |
 | Technical Implementation | 10% | TypeScript throughout, server-side proxy, offline-first, security rules |
 | Completeness & Usability | 5% | Full demo flow, Demo Mode for judges, production-ready audit complete |
+
+---
+
+## Development Tools & AI-Assisted Workflow
+
+### Clutch Runtime Core Technologies
+Clutch itself is a full-stack web application powered natively at runtime by official Google technologies and open-source packages:
+* **Generative AI Core**: Google Gemini 2.5 models utilizing the official `@google/genai` TypeScript SDK.
+* **Persistent Storage & Sync**: Google Cloud Firestore with real-time listeners and multi-stage background Event Triggers.
+* **Autonomous Execution**: Firebase Cloud Functions (Node.js 20 runtime environment).
+* **Identity Management**: Firebase Authentication (supporting Google OAuth and anonymous identities).
+* **Calendar Automation**: Google Calendar REST API v3 for bi-directional deep focus scheduling.
+* **Production Deployment**: High-performance containerized execution hosted on Google Cloud Run.
+
+### Development Tools & Engineering Acceleration
+To deliver a robust, highly polished, production-ready system within hackathon timelines, our software engineering workflow was augmented using modern AI-assisted software design, testing, and debugging methodologies.
+
+* **Google AI Studio / Antigravity Agent**: Acted as the primary co-pilot and orchestrator for implementing core business logic, scaffolding React components, validating Firestore security rules, and executing compiler/linter compliance runs.
+* **ChatGPT**: Utilized as a design partner to brainstorm visual concepts, refine the OS-style slate-gray layout aesthetic, debug layout structures, and polish user-facing markdown text.
+* **Claude**: Assisted in architectural code reviews, drafting deterministic loop-safety logic, and structuring clear, machine-parsable explainability payloads for the Agent Log feed.
+* **GitHub Copilot**: Employed where applicable for rapid, in-editor code and type completion.
+* **Modern Web Ecosystem**: Supported by high-productivity tools including **TypeScript**, **Vite** (build toolchain), **TailwindCSS** (utility-first UI styles), and the open-source **React** framework.
+
+*Note: These development tools were utilized strictly to accelerate code authoring, documentation, and debugging. All architectural patterns, pipeline designs, integration pathways, security boundary setups, and final code quality verifications remained entirely under developer control and direction. They represent productivity boosters and are not runtime dependencies of the Clutch application.*
 
 ---
 
