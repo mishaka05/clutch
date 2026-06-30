@@ -116,19 +116,28 @@ A developer-grade terminal interface with live log streaming, outage simulation 
 All backend agents coordinate in a seamless, event-driven cascade from task updates to visual feedback:
 
 ```
-User Task (Created/Updated)
-        ↓
-    Firestore (Event Triggers)
-        ↓
-Risk Assessment Agent (Evaluates Risk Score)
-        ↓
-  Escalation Agent (Decision & Telemetry Logs)
-        ↓
-Notification Dispatch (Deterministic IDs)
-        ↓
-    Agent Log (Saved with Explainability)
-        ↓
-   Dashboard UI (Real-Time Synchronisation)
+User Task (Created / Updated)
+          │
+          ▼
+Cloud Firestore
+          │
+          ▼
+Risk Assessment Agent
+          │
+          ▼
+Escalation Agent
+          │
+          ▼
+Recovery Agent
+          │
+          ▼
+Notification Dispatch
+          │
+          ▼
+Agent Logs & Telemetry
+          │
+          ▼
+Dashboard / Google Calendar
 ```
 
 ### Backend Safety & Design Principles
@@ -176,7 +185,7 @@ graph TB
 
 ## Autonomous Backend Agents
 
-Clutch now features fully autonomous backend agents powered by Firebase Cloud Functions. These agents execute server-side and continue monitoring, analyzing, and intervening in your workspace even when you close your browser.
+Clutch now features fully autonomous backend agents powered by Firebase Cloud Functions. These agents execute server-side in response to Firestore events. They autonomously analyze, escalate, recover, and update workspace state without relying on client-side execution, allowing backend decisions to occur independently of the browser interface.
 
 ### Key Capabilities & Mechanics
 * **Event-Driven Firestore Triggers**: Every action in the system is reacted to in real time. Creating, editing, or completing tasks triggers background agents instantly.
@@ -341,7 +350,7 @@ Rules are pre-configured in `firestore.rules`. Each user can only access their o
 | Criterion | Weight | How Clutch Addresses It |
 |---|---|---|
 | Problem Solving & Impact | 20% | Replaces passive reminders with an active autonomous scheduling system |
-| Agentic Depth | 20% | Multi-agent reasoning pipeline with tool invocation, conflict resolution, recovery logic, and explainable decision tracing, conflict resolution, self-healing recovery, agent log |
+| Agentic Depth | 20% | Multi-agent reasoning pipeline with tool invocation, conflict resolution, recovery logic, explainable decision tracing, self-healing recovery, agent log |
 | Innovation & Creativity | 20% | Dynamic risk scoring, deterministic fallback engine, OS-aesthetic UI |
 | Usage of Google Technologies | 15% | Gemini, Firebase Auth, Firestore, Calendar API, AI Studio, Cloud Run |
 | Product Experience & Design | 10% | Premium AI OS interface, Framer Motion system, responsive layouts |
