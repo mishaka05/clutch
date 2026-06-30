@@ -1,4 +1,4 @@
-# CLUTCH — AI Deadline Survival System
+# CLUTCH — AI-Powered Agentic Deadline Rescue Operating System
 
 <div align="center">
 
@@ -19,14 +19,19 @@
 
 ## What is Clutch?
 
-Clutch is an **autonomous AI scheduling operating system** that transforms passive task lists into a self-healing, real-time deadline management system. It does not remind you — it intervenes.
+Clutch is an **agentic AI productivity operating system** that transforms passive task lists into a self-healing, real-time deadline management system. Rather than acting as a passive reminder system, Clutch coordinates a multi-agent reasoning pipeline that plans, schedules, explains, and recovers from disruptions.
 
-Unlike traditional productivity tools that rely on static reminders, Clutch operates a continuous background agent loop that:
+### Why Agentic AI?
+
+Unlike conventional AI assistants that generate text responses, Clutch demonstrates agentic AI by coordinating specialized reasoning stages, invoking external tools such as Google Calendar, maintaining explainable decision logs, and recovering gracefully from service disruptions through deterministic fallback strategies.
+
+Unlike traditional productivity tools that rely on static reminders,Clutch orchestrates an event-driven multi-agent pipeline that activates whenever new task information is processed or scheduling decisions are required.
+that:
 
 - Parses tasks from natural language in real time
 - Computes dynamic risk scores based on deadline proximity and task complexity
-- Autonomously schedules focus blocks directly into Google Calendar
-- Detects and resolves calendar conflicts without user intervention
+- Reasons over Google Calendar availability and invokes Calendar API tools to schedule focus blocks.
+- Evaluates scheduling conflicts and dynamically selects alternative time slots before invoking Calendar updates.
 - Switches to a hyper-pragmatic crisis mode for high-risk scenarios
 - Falls back to a deterministic local engine if Gemini is unavailable
 
@@ -42,15 +47,15 @@ Unlike traditional productivity tools that rely on static reminders, Clutch oper
 | **Auth** | Dual-flow: Google OAuth (full Calendar sync) or Demo Mode (local scheduling) |
 | **Dashboard** | Operational Task Matrix — live risk scores, timers, rescheduling state |
 | **Task Command Center** | Animated risk dial, micro-action checklist, AI Decision Coach |
-| **Agent Logs** | Full timeline of every autonomous decision with confidence scores |
+| **Agent Logs** | Full timeline of every agent decision with confidence scores |
 | **Diagnostics** | Live terminal feed, resiliency simulator, calendar pipeline audit |
 
 ---
 
 ## Key Features
 
-### Autonomous Agent Architecture
-The scheduling agent operates continuously. When the system detects stalling progress against an approaching deadline, it autonomously locates available calendar slots, schedules a 45-minute focus block, resolves any conflicts by shifting to the next gap, and writes the event directly to Google Calendar — all without user intervention.
+### Multi-Agent Decision Pipeline
+Clutch coordinates specialized agents responsible for parsing, risk assessment, scheduling, recovery, and explainability. Each agent contributes a focused decision before handing control to the next stage of the workflow. When the system detects stalling progress against an approaching deadline, it autonomously locates available calendar slots, schedules a 45-minute focus block, resolves any conflicts by shifting to the next gap, and writes the event directly to Google Calendar — all without user intervention.
 
 ### Natural Language Task Ingestion
 Tasks are entered as plain sentences. The Gemini-powered parser (`/api/gemini/parse-task`) extracts title, category, deadline, estimated duration, and initial complexity with zero configuration required.
@@ -61,7 +66,7 @@ Tasks are entered as plain sentences. The Gemini-powered parser (`/api/gemini/pa
 ```
 
 ### Dynamic Risk Assessment Engine
-Every task carries a live risk score (0–100%) computed from deadline proximity and complexity ratio. Scores update continuously and drive the color hierarchy across the entire interface — from card borders to the animated dial in the Task Command Center.
+Every task carries a live risk score (0–100%) computed from deadline proximity and complexity ratio. Risk scores are recalculated whenever task information changes or scheduling decisions are performed and drive the color hierarchy across the entire interface — from card borders to the animated dial in the Task Command Center.
 
 | Score | State | UI Signal |
 |---|---|---|
@@ -71,10 +76,10 @@ Every task carries a live risk score (0–100%) computed from deadline proximity
 | 86–100 | **Crisis** | Crisis system prompt activated |
 
 ### AI Decision Coach
-A context-aware conversational AI sidebar that understands the full task context — deadline, progress, calendar availability, and risk level. In high-risk scenarios it automatically switches to a triage mode: 3 specific, executable steps and a direct booking confirmation for the next calendar slot.
+A context-aware conversational AI sidebar that understands the full task context — deadline, progress, calendar availability, and risk level.Every recommendation is accompanied by transparent reasoning derived from the current task state, scheduling constraints, and calculated risk. In high-risk scenarios it automatically switches to a triage mode: 3 specific, executable steps and a direct booking confirmation for the next calendar slot.
 
 ### Deterministic Fallback Engine
-If Gemini returns a 429 rate limit or is unreachable, the system silently switches to a local regex-based parser with static scheduling rules. Users experience no interruption. A recovery agent monitors service restoration and re-processes any queued requests.
+If Gemini returns a 429 rate limit or is unreachable, the system gracefully switches to a local regex-based parser with static scheduling rules. Users experience no interruption. A recovery agent monitors service restoration and re-processes any queued requests.
 
 ### Dual Authentication
 - **Google OAuth** — Full Calendar read/write, real focus blocks, persistent Firestore profile
@@ -190,7 +195,7 @@ flowchart LR
 ## Google Technologies Used
 
 - **Google AI Studio** — Primary build and deployment platform
-- **Gemini 2.5 Flash / Pro** — Task parsing, AI coaching, risk assessment, structured output
+- **Gemini 2.5 Flash / Pro** — Gemini 2.5 Flash / Pro — structured task parsing, decision support, contextual coaching, and schema-constrained reasoning
 - **Firebase Authentication** — Dual-flow identity (Google OAuth + Anonymous)
 - **Cloud Firestore** — Real-time NoSQL database with offline persistence
 - **Google Calendar API v3** — Autonomous focus block scheduling and conflict resolution
@@ -273,7 +278,7 @@ Rules are pre-configured in `firestore.rules`. Each user can only access their o
 | Criterion | Weight | How Clutch Addresses It |
 |---|---|---|
 | Problem Solving & Impact | 20% | Replaces passive reminders with an active autonomous scheduling system |
-| Agentic Depth | 20% | Continuous scheduling agent, conflict resolution, self-healing recovery, agent log |
+| Agentic Depth | 20% | Multi-agent reasoning pipeline with tool invocation, conflict resolution, recovery logic, and explainable decision tracing, conflict resolution, self-healing recovery, agent log |
 | Innovation & Creativity | 20% | Dynamic risk scoring, deterministic fallback engine, OS-aesthetic UI |
 | Usage of Google Technologies | 15% | Gemini, Firebase Auth, Firestore, Calendar API, AI Studio, Cloud Run |
 | Product Experience & Design | 10% | Premium AI OS interface, Framer Motion system, responsive layouts |
